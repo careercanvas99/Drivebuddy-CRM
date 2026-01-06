@@ -1,0 +1,8 @@
+{
+  "name": "Drivebuddy CRM",
+  "description": "Enterprise Driver, Trip & Customer Management Platform with GitHub-based remote storage and driver selfie verification.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
