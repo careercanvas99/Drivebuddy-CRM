@@ -5,5 +5,12 @@
     "role": "DRIVER",
     "password": "2211",
     "phone": ""
+  },
+  {
+    "id": "USR1767765820855",
+    "username": "gopal",
+    "role": "CUSTOMER",
+    "password": "1122",
+    "phone": "6300665549"
   }
 ]
