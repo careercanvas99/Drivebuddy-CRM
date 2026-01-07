@@ -1,5 +1,5 @@
 -- Drivebuddy CRM SQL Dump
--- Generated: 2026-01-07T06:45:43.879Z
+-- Generated: 2026-01-07T06:45:52.934Z
 
 CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT, role TEXT, password TEXT, phone TEXT);
 CREATE TABLE IF NOT EXISTS drivers (id TEXT PRIMARY KEY, name TEXT, phone TEXT, licenseNumber TEXT, licenseExpiry TEXT, status TEXT);
