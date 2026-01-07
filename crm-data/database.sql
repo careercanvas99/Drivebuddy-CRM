@@ -1,5 +1,5 @@
 -- Drivebuddy CRM SQL Dump
--- Generated: 2026-01-07T06:03:42.672Z
+-- Generated: 2026-01-07T06:04:04.378Z
 
 CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT, role TEXT, password TEXT, phone TEXT);
 CREATE TABLE IF NOT EXISTS drivers (id TEXT PRIMARY KEY, name TEXT, phone TEXT, licenseNumber TEXT, licenseExpiry TEXT, status TEXT);
@@ -15,3 +15,4 @@ INSERT OR REPLACE INTO users VALUES ('USR1767765820855', 'gopal', 'CUSTOMER', '1
 -- Customers Data
 
 -- Trips Data
+INSERT OR REPLACE INTO trips VALUES ('TRP842786', 'USR1767765820855', '', 'PENDING', 'beeramguda', 'beeramguda', '2026-01-07T06:04:02.786Z', 500, 0);
