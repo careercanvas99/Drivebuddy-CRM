@@ -12,5 +12,12 @@
     "role": "CUSTOMER",
     "password": "1122",
     "phone": "6300665549"
+  },
+  {
+    "id": "USR1767765865472",
+    "username": "shravann",
+    "role": "DRIVER",
+    "password": "1122",
+    "phone": "9876543210"
   }
 ]
