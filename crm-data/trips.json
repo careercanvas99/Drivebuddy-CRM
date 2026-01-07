@@ -1,1 +1,20 @@
-[]
+[
+  {
+    "id": "TRP423737",
+    "customerId": "USR1767765820855",
+    "status": "PENDING",
+    "pickup": "beeramguda",
+    "drop": "beeramguda",
+    "dateTime": "2026-01-07T06:30:23.737Z",
+    "expectedStartDateTime": "2026-01-07T12:00",
+    "expectedEndDateTime": "2026-01-07T14:00",
+    "basePrice": 500,
+    "logs": [
+      {
+        "timestamp": "2026-01-07T06:30:23.737Z",
+        "user": "admin",
+        "action": "Manual Administrative Booking"
+      }
+    ]
+  }
+]
