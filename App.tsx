@@ -65,7 +65,6 @@ const App: React.FC = () => {
   const [syncStatus, setSyncStatus] = useState<'synced' | 'pending' | 'error' | 'offline'>('offline');
   
   const isInitializing = useRef(true);
-  // Replaced NodeJS.Timeout with ReturnType<typeof setTimeout> to fix the "Cannot find namespace 'NodeJS'" error in browser environments.
   const syncTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // GITHUB SYNC ENGINE: CLOUD PULL
@@ -208,7 +207,7 @@ const App: React.FC = () => {
   const handleLogin = (userData: User) => setUser(userData);
   const handleLogout = () => setUser(null);
 
-  if (!user) return <Login onLogin={handleLogin} />;
+  if (!user) return <Login onLogin={handleLogin} users={users} customers={customers} />;
 
   const renderContent = () => {
     if (user.role === UserRole.CUSTOMER) {

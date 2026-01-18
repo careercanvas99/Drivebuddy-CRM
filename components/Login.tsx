@@ -1,13 +1,14 @@
 
 import React, { useState } from 'react';
-import { User, UserRole } from '../types.ts';
-import { mockUsers } from '../services/mockData.ts';
+import { User, UserRole, Customer } from '../types.ts';
 
 interface LoginProps {
   onLogin: (user: User) => void;
+  users: User[];
+  customers: Customer[];
 }
 
-const Login: React.FC<LoginProps> = ({ onLogin }) => {
+const Login: React.FC<LoginProps> = ({ onLogin, users, customers }) => {
   const [isCustomer, setIsCustomer] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -17,32 +18,35 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    const user = mockUsers.find(u => u.username === username && u.password === password);
-    if (user) {
-      onLogin(user);
+    // Use the live 'users' list passed from App.tsx instead of static mock data
+    const userMatch = users.find(u => u.username === username && u.password === password);
+    if (userMatch) {
+      onLogin(userMatch);
     } else {
-      alert('Invalid credentials');
+      alert('Invalid credentials. If this is a new account, ensure data has synced.');
     }
   };
 
   const handleCustomerLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (!otpSent) {
-      // Simulate Twilio OTP
-      console.log(`Sending OTP to ${mobile}... (Twilio Placeholder)`);
+      // Simulate OTP handshake
+      console.log(`Sending OTP to ${mobile}...`);
       setOtpSent(true);
-      alert('OTP sent to your mobile: 123456 (Mock)');
+      alert('Security Code sent: 123456 (Dev Bypass)');
     } else {
       if (otp === '123456') {
+        // Resolve customer identity from the global registry
+        const existingCustomer = customers.find(c => c.mobile === mobile);
         const user: User = {
-          id: `CUST-${Math.floor(Math.random() * 1000)}`,
-          name: 'Animesh Basak',
+          id: existingCustomer?.id || `CUST-${Math.floor(Math.random() * 1000)}`,
+          name: existingCustomer?.name || 'Valued Client',
           username: mobile,
           role: UserRole.CUSTOMER
         };
         onLogin(user);
       } else {
-        alert('Invalid OTP');
+        alert('Invalid OTP sequence.');
       }
     }
   };
@@ -54,20 +58,20 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
       <div className="w-full max-w-md bg-gray-900 border border-gray-800 rounded-[2.5rem] p-10 relative z-10 shadow-2xl">
         <div className="text-center mb-10">
-          <h1 className="text-4xl font-black text-purple-500 mb-2">Drivebuddy</h1>
-          <p className="text-gray-400">Professional Driver CRM</p>
+          <h1 className="text-4xl font-black text-purple-500 mb-2 tracking-tighter">Drivebuddy</h1>
+          <p className="text-gray-400 text-xs font-black uppercase tracking-widest">Enterprise Chauffeur CRM</p>
         </div>
 
-        <div className="flex bg-gray-950 p-1 rounded-2xl mb-8">
+        <div className="flex bg-gray-950 p-1 rounded-2xl mb-8 border border-gray-800 shadow-inner">
           <button 
             onClick={() => setIsCustomer(false)}
-            className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${!isCustomer ? 'bg-purple-600 text-white' : 'text-gray-500'}`}
+            className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${!isCustomer ? 'bg-purple-600 text-white shadow-xl shadow-purple-900/40' : 'text-gray-500 hover:text-gray-300'}`}
           >
             Staff Portal
           </button>
           <button 
             onClick={() => setIsCustomer(true)}
-            className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${isCustomer ? 'bg-purple-600 text-white' : 'text-gray-500'}`}
+            className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${isCustomer ? 'bg-purple-600 text-white shadow-xl shadow-purple-900/40' : 'text-gray-500 hover:text-gray-300'}`}
           >
             Customer
           </button>
@@ -75,72 +79,74 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
         {!isCustomer ? (
           <form onSubmit={handleAdminLogin} className="space-y-4">
-            <div>
-              <label className="text-xs font-bold text-gray-500 uppercase px-2">Username</label>
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-gray-500 uppercase px-4 tracking-[0.2em]">Ops Username</label>
               <input 
                 type="text" 
                 required 
-                className="w-full bg-gray-950 border border-gray-800 rounded-2xl p-4 mt-1 focus:border-purple-500 outline-none transition-all"
-                placeholder="admin_ops"
+                className="w-full bg-gray-950 border border-gray-800 rounded-2xl p-4 mt-1 focus:border-purple-500 outline-none transition-all font-mono text-white shadow-inner"
+                placeholder="e.g. babu"
                 value={username}
                 onChange={e => setUsername(e.target.value)}
               />
             </div>
-            <div>
-              <label className="text-xs font-bold text-gray-500 uppercase px-2">Password</label>
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-gray-500 uppercase px-4 tracking-[0.2em]">Passphrase</label>
               <input 
                 type="password" 
                 required 
-                className="w-full bg-gray-950 border border-gray-800 rounded-2xl p-4 mt-1 focus:border-purple-500 outline-none transition-all"
+                className="w-full bg-gray-950 border border-gray-800 rounded-2xl p-4 mt-1 focus:border-purple-500 outline-none transition-all text-purple-500 shadow-inner"
                 placeholder="••••••••"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
               />
             </div>
-            <button className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 rounded-2xl mt-6 shadow-lg shadow-purple-900/40 transition-all active:scale-95">
-              Enter Dashboard
+            <button className="w-full bg-purple-600 hover:bg-purple-700 text-white font-black py-5 rounded-2xl mt-6 shadow-2xl shadow-purple-900/40 transition-all active:scale-95 uppercase text-[10px] tracking-[0.3em]">
+              Initialize Session
             </button>
           </form>
         ) : (
           <form onSubmit={handleCustomerLogin} className="space-y-4">
-            <div>
-              <label className="text-xs font-bold text-gray-500 uppercase px-2">Mobile Number</label>
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-gray-500 uppercase px-4 tracking-[0.2em]">Contact Mobile</label>
               <input 
                 type="tel" 
                 required 
                 disabled={otpSent}
-                className="w-full bg-gray-950 border border-gray-800 rounded-2xl p-4 mt-1 focus:border-purple-500 outline-none transition-all disabled:opacity-50"
-                placeholder="+91 98765 43210"
+                className="w-full bg-gray-950 border border-gray-800 rounded-2xl p-4 mt-1 focus:border-purple-500 outline-none transition-all disabled:opacity-50 font-mono text-white shadow-inner"
+                placeholder="+91 XXXXX XXXXX"
                 value={mobile}
                 onChange={e => setMobile(e.target.value)}
               />
             </div>
             {otpSent && (
-              <div className="animate-in fade-in slide-in-from-top duration-300">
-                <label className="text-xs font-bold text-gray-500 uppercase px-2">One-Time Password</label>
+              <div className="animate-in fade-in slide-in-from-top duration-300 space-y-1">
+                <label className="text-[10px] font-black text-gray-500 uppercase px-4 tracking-[0.2em]">Cloud OTP</label>
                 <input 
                   type="text" 
                   required 
                   maxLength={6}
-                  className="w-full bg-gray-950 border border-gray-800 rounded-2xl p-4 mt-1 focus:border-purple-500 outline-none transition-all tracking-[1em] text-center font-bold text-lg"
+                  className="w-full bg-gray-950 border border-gray-800 rounded-2xl p-4 mt-1 focus:border-purple-500 outline-none transition-all tracking-[1em] text-center font-black text-lg text-purple-400"
                   placeholder="000000"
                   value={otp}
                   onChange={e => setOtp(e.target.value)}
                 />
               </div>
             )}
-            <button className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 rounded-2xl mt-6 shadow-lg shadow-purple-900/40 transition-all active:scale-95">
-              {otpSent ? 'Verify & Continue' : 'Send OTP'}
+            <button className="w-full bg-purple-600 hover:bg-purple-700 text-white font-black py-5 rounded-2xl mt-6 shadow-2xl shadow-purple-900/40 transition-all active:scale-95 uppercase text-[10px] tracking-[0.3em]">
+              {otpSent ? 'Authorize Access' : 'Request Security Code'}
             </button>
             {otpSent && (
-               <button type="button" onClick={() => setOtpSent(false)} className="w-full text-xs text-purple-500 mt-2 hover:underline">Change Mobile Number</button>
+               <button type="button" onClick={() => setOtpSent(false)} className="w-full text-[9px] text-gray-500 mt-4 hover:text-white uppercase font-black tracking-widest">Correction: Change Number</button>
             )}
           </form>
         )}
 
-        <p className="text-center text-gray-600 text-xs mt-10">
-          Secure enterprise login powered by Drivebuddy Systems
-        </p>
+        <div className="text-center mt-12 pt-8 border-t border-gray-800">
+          <p className="text-[9px] text-gray-600 font-black uppercase tracking-widest">
+            Protected by Drivebuddy Architecture v2.5
+          </p>
+        </div>
       </div>
     </div>
   );
