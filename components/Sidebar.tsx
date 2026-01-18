@@ -19,15 +19,18 @@ const Sidebar: React.FC<SidebarProps> = ({ role, onLogout }) => {
     UserRole.DRIVER_HIRING_TEAM
   ].includes(role);
 
+  const isAdmin = role === UserRole.ADMIN;
+
   const navItems = [
     { path: '/', label: 'Dashboard', icon: ICONS.Dashboard, show: isStaff },
     { path: '/trips', label: 'Trips', icon: ICONS.Trips, show: isStaff },
     { path: '/drivers', label: 'Drivers', icon: ICONS.Drivers, show: isStaff },
     { path: '/customers', label: 'Customers', icon: ICONS.Profile, show: isStaff },
     { path: '/finance', label: 'Finance', icon: ICONS.Finance, show: [UserRole.ADMIN, UserRole.FINANCE].includes(role) },
-    { path: '/users', label: 'Staff Management', icon: ICONS.Users, show: role === UserRole.ADMIN },
+    // Strict RBAC: Staff Management menu is ONLY visible to Admins
+    { path: '/users', label: 'Staff Management', icon: ICONS.Users, show: isAdmin },
     { path: '/estimation', label: 'Trip Estimation', icon: ICONS.Reports, show: true },
-    { path: '/settings', label: 'Settings', icon: ICONS.Edit, show: role === UserRole.ADMIN },
+    { path: '/settings', label: 'Settings', icon: ICONS.Edit, show: isAdmin },
   ];
 
   return (

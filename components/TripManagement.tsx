@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Trip, Driver, Customer, TripStatus, User, UserRole, PaymentStatus, PaymentMode, CompanySettings } from '../types.ts';
 import { ICONS } from '../constants.tsx';
 import TripBookingModal from './TripBookingModal.tsx';
@@ -24,11 +24,21 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState<Trip | null>(null);
 
+  // Filter States
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterType, setFilterType] = useState<string>('all');
+  const [filterDriver, setFilterDriver] = useState<string>('all');
+  const [filterDateStart, setFilterDateStart] = useState<string>('');
+  const [filterDateEnd, setFilterDateEnd] = useState<string>('');
+
   const isAdmin = user.role === UserRole.ADMIN;
-  const canEdit = [UserRole.ADMIN, UserRole.OPERATION_EXECUTIVE, UserRole.OPS_MANAGER].includes(user.role);
+  
+  // Per requirements: Only Admin can modify history/records. 
+  // Others have Read-Only + Export access.
+  const canModify = isAdmin;
 
   const handleAssignDriver = (tripId: string, driverId: string) => {
-    if (!driverId) return;
+    if (!canModify || !driverId) return;
     setTrips(prev => prev.map(t => 
       t.id === tripId ? { ...t, driverId, status: 'assigned' } : t
     ));
@@ -37,116 +47,8 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
     }
   };
 
-  const generateInvoicePDF = (trip: Trip) => {
-    const doc = new jsPDF();
-    const customer = customers.find(c => c.id === trip.customerId);
-    
-    // CRITICAL FIX: Use the stored billAmount as the Absolute Source of Truth
-    const finalAmount = trip.billAmount || 0;
-    
-    // Get breakdown details for duration display
-    const billingDetails = calculateFareInternal(
-      new Date(trip.startDateTime),
-      new Date(trip.endDateTime),
-      "No", "Instation", trip.tripType === 'one-way' ? "One Way" : "Round Trip"
-    );
-
-    // If the stored amount differs from calculated, we derive the breakdown from the stored amount
-    // to maintain logical consistency on the document (GST 18%)
-    const derivedBase = Math.round(finalAmount / 1.18);
-    const derivedGst = finalAmount - derivedBase;
-
-    // --- Header (Top Left - Logo and Address) ---
-    let headerY = 15;
-    if (companySettings.logo) {
-      try {
-        doc.addImage(companySettings.logo, 'PNG', 20, headerY, 45, 20);
-        headerY += 28;
-      } catch (e) { 
-        console.error("Logo failed to render", e); 
-        headerY += 5;
-      }
-    } else {
-        headerY += 10;
-    }
-
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(100);
-    const addressLines = doc.splitTextToSize(companySettings.address, 70);
-    doc.text(addressLines, 20, headerY);
-    headerY += (addressLines.length * 5);
-    doc.text(`Contact: ${companySettings.mobile}`, 20, headerY);
-
-    // --- Invoice Title (Top Right) ---
-    doc.setTextColor(0);
-    doc.setFontSize(30);
-    doc.setFont("helvetica", "bold");
-    doc.text("INVOICE", 130, 30);
-    
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.text(`Invoice No: ${trip.id}`, 130, 40);
-    doc.text(`Date: ${new Date().toLocaleDateString()}`, 130, 45);
-
-    // --- Client Info ---
-    doc.setDrawColor(230);
-    doc.line(20, 70, 190, 70);
-    
-    doc.setFont("helvetica", "bold");
-    doc.text("BILL TO:", 20, 80);
-    doc.setFont("helvetica", "normal");
-    doc.text(customer?.name || "Valued Client", 20, 85);
-    doc.text(customer?.mobile || "", 20, 90);
-    doc.text(`Vehicle: ${customer?.vehicleModel || "Standard"}`, 20, 95);
-
-    // --- Trip Details ---
-    doc.setFont("helvetica", "bold");
-    doc.text("JOURNEY DETAILS:", 110, 80);
-    doc.setFont("helvetica", "normal");
-    doc.text(`From: ${trip.pickupLocation}`, 110, 85);
-    doc.text(`To: ${trip.dropLocation}`, 110, 90);
-    doc.text(`Start: ${new Date(trip.startDateTime).toLocaleString()}`, 110, 95);
-    doc.text(`End: ${new Date(trip.endDateTime).toLocaleString()}`, 110, 100);
-
-    // --- Billing Table ---
-    doc.setFillColor(245);
-    doc.rect(20, 110, 170, 10, 'F');
-    doc.setFont("helvetica", "bold");
-    doc.text("Description", 25, 117);
-    doc.text("Rate Type", 90, 117);
-    doc.text("Duration", 130, 117);
-    doc.text("Amount", 165, 117);
-
-    doc.setFont("helvetica", "normal");
-    doc.text(`Professional Chauffeur Services (${trip.tripType})`, 25, 130);
-    doc.text(trip.tripType === 'one-way' ? "One Way" : "Round Trip", 90, 130);
-    doc.text(`${billingDetails.hours}h ${billingDetails.mins}m`, 130, 130);
-    doc.text(`INR ${derivedBase.toFixed(0)}`, 165, 130);
-
-    // --- Totals ---
-    doc.line(20, 145, 190, 145);
-    doc.setFont("helvetica", "bold");
-    doc.text("Subtotal:", 140, 155);
-    doc.text(`INR ${derivedBase.toFixed(0)}`, 165, 155);
-    
-    doc.text("GST (18%):", 140, 160);
-    doc.text(`INR ${derivedGst.toFixed(0)}`, 165, 160);
-    
-    doc.setFontSize(14);
-    doc.text("Total:", 140, 170);
-    doc.text(`INR ${finalAmount.toFixed(0)}`, 165, 170);
-
-    // --- Footer ---
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "italic");
-    doc.setTextColor(150);
-    doc.text("Thank you for choosing Drivebuddy. This is a computer generated invoice.", 105, 210, { align: "center" });
-
-    doc.save(`Invoice_${trip.id}.pdf`);
-  };
-
   const handleCancelTrip = (tripId: string) => {
+    if (!canModify) return;
     if (!cancelReason.trim()) return alert('Reason for cancellation is mandatory');
     setTrips(prev => prev.map(t => 
       t.id === tripId ? { ...t, status: 'cancelled', cancelReason: cancelReason.trim() } : t
@@ -157,64 +59,221 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
   };
 
   const handlePayment = (tripId: string, mode: PaymentMode) => {
+    if (!canModify) return;
     setTrips(prev => prev.map(t => 
       t.id === tripId ? { ...t, paymentMode: mode, paymentStatus: 'collected' } : t
     ));
     setShowPaymentModal(null);
   };
 
-  const filteredTrips = trips.filter(trip => {
+  const generateInvoicePDF = (trip: Trip) => {
+    const doc = new jsPDF();
     const customer = customers.find(c => c.id === trip.customerId);
-    const searchStr = `${trip.id} ${customer?.name || ''}`.toLowerCase();
-    return searchStr.includes(searchTerm.toLowerCase());
-  });
+    const finalAmount = trip.billAmount || 0;
+    const billingDetails = calculateFareInternal(
+      new Date(trip.startDateTime),
+      new Date(trip.endDateTime),
+      "No", "Instation", trip.tripType === 'one-way' ? "One Way" : "Round Trip"
+    );
+
+    const derivedBase = Math.round(finalAmount / 1.18);
+    const derivedGst = finalAmount - derivedBase;
+
+    let headerY = 15;
+    if (companySettings.logo) {
+      try {
+        doc.addImage(companySettings.logo, 'PNG', 20, headerY, 45, 20);
+        headerY += 28;
+      } catch (e) { headerY += 5; }
+    } else { headerY += 10; }
+
+    doc.setFontSize(10);
+    doc.text(doc.splitTextToSize(companySettings.address, 70), 20, headerY);
+    headerY += 15;
+    doc.text(`Contact: ${companySettings.mobile}`, 20, headerY);
+
+    doc.setFontSize(30);
+    doc.setFont("helvetica", "bold");
+    doc.text("INVOICE", 130, 30);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Invoice No: ${trip.id}`, 130, 40);
+    doc.text(`Date: ${new Date().toLocaleDateString()}`, 130, 45);
+
+    doc.save(`Invoice_${trip.id}.pdf`);
+  };
+
+  // CSV Export Engine
+  const downloadCSV = () => {
+    const headers = ["Trip ID", "Customer", "Mobile", "Driver", "Pickup", "Drop", "Type", "Status", "Date", "Base Amount", "Total Amount"];
+    const rows = filteredTrips.map(t => {
+      const cust = customers.find(c => c.id === t.customerId);
+      const drv = drivers.find(d => d.id === t.driverId);
+      const base = Math.round((t.billAmount || 0) / 1.18);
+      return [
+        t.id,
+        cust?.name || 'Guest',
+        cust?.mobile || '',
+        drv?.name || 'Unassigned',
+        `"${t.pickupLocation}"`,
+        `"${t.dropLocation}"`,
+        t.tripType,
+        t.status,
+        new Date(t.startDateTime).toLocaleDateString(),
+        base,
+        t.billAmount || 0
+      ];
+    });
+
+    const csvContent = "data:text/csv;charset=utf-8," 
+      + headers.join(",") + "\n"
+      + rows.map(e => e.join(",")).join("\n");
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    const dateStr = new Date().toISOString().split('T')[0].replace(/-/g, '_');
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `trip_history_${dateStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Advanced Filtering Logic
+  const filteredTrips = useMemo(() => {
+    return trips.filter(trip => {
+      const customer = customers.find(c => c.id === trip.customerId);
+      const driver = drivers.find(d => d.id === trip.driverId);
+      
+      // Search Box
+      const searchStr = `${trip.id} ${customer?.name || ''} ${driver?.name || ''}`.toLowerCase();
+      const matchesSearch = searchStr.includes(searchTerm.toLowerCase());
+      
+      // Status Filter
+      const matchesStatus = filterStatus === 'all' || trip.status === filterStatus;
+      
+      // Type Filter
+      const matchesType = filterType === 'all' || trip.tripType === filterType;
+      
+      // Driver Filter
+      const matchesDriver = filterDriver === 'all' || trip.driverId === filterDriver;
+
+      // Date Range Filter
+      let matchesDate = true;
+      const tripDate = new Date(trip.startDateTime).getTime();
+      if (filterDateStart) {
+        const start = new Date(filterDateStart).getTime();
+        if (tripDate < start) matchesDate = false;
+      }
+      if (filterDateEnd) {
+        const end = new Date(filterDateEnd).setHours(23, 59, 59, 999);
+        if (tripDate > end) matchesDate = false;
+      }
+
+      return matchesSearch && matchesStatus && matchesType && matchesDriver && matchesDate;
+    });
+  }, [trips, searchTerm, filterStatus, filterType, filterDriver, filterDateStart, filterDateEnd, customers, drivers]);
 
   const getBillingDetails = (trip: Trip) => {
     if (trip.status !== 'completed' || !trip.startDateTime || !trip.endDateTime) return null;
-    
-    // Primary Source of Truth: trip.billAmount
     const finalAmount = trip.billAmount || 0;
     const base = Math.round(finalAmount / 1.18);
     const gst = finalAmount - base;
-
     const durationData = calculateFareInternal(
       new Date(trip.startDateTime),
       new Date(trip.endDateTime),
-      "No",
-      "Instation",
-      trip.tripType === 'one-way' ? "One Way" : "Round Trip"
+      "No", "Instation", trip.tripType === 'one-way' ? "One Way" : "Round Trip"
     );
-
-    return {
-      ...durationData,
-      basePrice: base,
-      gst: gst,
-      totalPrice: finalAmount
-    };
+    return { ...durationData, basePrice: base, gst: gst, totalPrice: finalAmount };
   };
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold">Trip Operations</h2>
-          <p className="text-gray-400 text-sm">Manage, track and audit all journey records</p>
+          <h2 className="text-2xl font-bold">Trip History & Operations</h2>
+          <p className="text-gray-400 text-sm">Full operational audit log and dispatch control</p>
         </div>
         <div className="flex w-full md:w-auto gap-3">
-          <div className="relative flex-1 md:w-64">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-500">
-              {ICONS.View}
-            </div>
+          <button 
+            onClick={downloadCSV}
+            className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2 border border-gray-700 transition-all"
+          >
+            {ICONS.Reports} Export CSV
+          </button>
+          {isAdmin && (
+            <button onClick={() => setShowBookingModal(true)} className="bg-purple-600 px-4 py-2 rounded-lg text-sm transition-all whitespace-nowrap shadow-lg shadow-purple-900/40">
+              {ICONS.Plus} New Trip
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Control Panel: Advanced Filters */}
+      <div className="bg-gray-900/50 p-6 rounded-2xl border border-gray-800 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="space-y-1">
+          <label className="text-[10px] font-black text-gray-500 uppercase px-2">Search</label>
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-500">{ICONS.View}</div>
             <input 
-              type="text" 
-              placeholder="Search ID or Customer..." 
-              className="w-full bg-gray-900 border border-gray-800 rounded-lg pl-10 pr-4 py-2 text-sm focus:border-purple-500 outline-none"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              type="text" placeholder="ID/Customer..." 
+              className="w-full bg-gray-950 border border-gray-800 rounded-lg pl-9 pr-3 py-2 text-xs focus:border-purple-500 outline-none"
+              value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          <button onClick={() => setShowBookingModal(true)} className="bg-purple-600 px-4 py-2 rounded-lg text-sm transition-all whitespace-nowrap">
-            {ICONS.Plus} New Trip
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-[10px] font-black text-gray-500 uppercase px-2">Status</label>
+          <select 
+            className="w-full bg-gray-950 border border-gray-800 rounded-lg p-2 text-xs focus:border-purple-500 outline-none"
+            value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
+          >
+            <option value="all">All Statuses</option>
+            <option value="unassigned">Unassigned</option>
+            <option value="assigned">Assigned</option>
+            <option value="started">Started</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-[10px] font-black text-gray-500 uppercase px-2">Driver</label>
+          <select 
+            className="w-full bg-gray-950 border border-gray-800 rounded-lg p-2 text-xs focus:border-purple-500 outline-none"
+            value={filterDriver} onChange={(e) => setFilterDriver(e.target.value)}
+          >
+            <option value="all">All Drivers</option>
+            {drivers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-[10px] font-black text-gray-500 uppercase px-2">From Date</label>
+          <input 
+            type="date" className="w-full bg-gray-950 border border-gray-800 rounded-lg p-2 text-xs focus:border-purple-500 outline-none"
+            value={filterDateStart} onChange={(e) => setFilterDateStart(e.target.value)}
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-[10px] font-black text-gray-500 uppercase px-2">To Date</label>
+          <input 
+            type="date" className="w-full bg-gray-950 border border-gray-800 rounded-lg p-2 text-xs focus:border-purple-500 outline-none"
+            value={filterDateEnd} onChange={(e) => setFilterDateEnd(e.target.value)}
+          />
+        </div>
+
+        <div className="flex items-end">
+          <button 
+            onClick={() => {
+              setSearchTerm(''); setFilterStatus('all'); setFilterType('all');
+              setFilterDriver('all'); setFilterDateStart(''); setFilterDateEnd('');
+            }}
+            className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 text-[10px] font-black uppercase text-gray-400 hover:text-white transition-all"
+          >
+            Reset Filters
           </button>
         </div>
       </div>
@@ -223,51 +282,48 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
         <table className="w-full text-left text-sm">
           <thead className="bg-gray-950 text-gray-400 border-b border-gray-800">
             <tr>
-              <th className="p-4 font-medium">Trip ID</th>
-              <th className="p-4 font-medium">Customer</th>
-              <th className="p-4 font-medium">Driver</th>
-              <th className="p-4 font-medium">Status</th>
-              <th className="p-4 font-medium">Billing</th>
-              <th className="p-4 font-medium text-right">Actions</th>
+              <th className="p-4 font-medium text-[10px] uppercase">ID</th>
+              <th className="p-4 font-medium text-[10px] uppercase">Client Info</th>
+              <th className="p-4 font-medium text-[10px] uppercase">Assigned Driver</th>
+              <th className="p-4 font-medium text-[10px] uppercase">Status</th>
+              <th className="p-4 font-medium text-[10px] uppercase">Billing</th>
+              <th className="p-4 font-medium text-[10px] uppercase text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
             {filteredTrips.map(trip => (
               <tr key={trip.id} className="hover:bg-gray-800/50 transition-all">
                 <td className="p-4 font-mono text-xs text-purple-400 font-bold">{trip.id}</td>
-                <td className="p-4 font-medium">{customers.find(c => c.id === trip.customerId)?.name || 'Guest'}</td>
-                <td className="p-4 text-xs">{drivers.find(d => d.id === trip.driverId)?.name || <span className="text-yellow-500 italic">Unassigned</span>}</td>
                 <td className="p-4">
-                  <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
-                    trip.status === 'completed' ? 'bg-green-900/50 text-green-400' :
-                    trip.status === 'unassigned' ? 'bg-red-900/50 text-red-400' :
-                    'bg-blue-900/50 text-blue-400'
+                  <div className="font-bold">{customers.find(c => c.id === trip.customerId)?.name || 'Guest'}</div>
+                  <div className="text-[10px] text-gray-500">{new Date(trip.startDateTime).toLocaleDateString()}</div>
+                </td>
+                <td className="p-4 text-xs font-medium">
+                  {drivers.find(d => d.id === trip.driverId)?.name || <span className="text-yellow-500/50 italic">Waiting...</span>}
+                </td>
+                <td className="p-4">
+                  <span className={`px-2 py-1 rounded text-[9px] font-black uppercase tracking-widest ${
+                    trip.status === 'completed' ? 'bg-green-900/40 text-green-400 border border-green-500/20' :
+                    trip.status === 'unassigned' ? 'bg-red-900/40 text-red-400 border border-red-500/20' :
+                    trip.status === 'cancelled' ? 'bg-gray-800 text-gray-500 border border-gray-700' :
+                    'bg-blue-900/40 text-blue-400 border border-blue-500/20'
                   }`}>{trip.status}</span>
                 </td>
                 <td className="p-4">
-                  {trip.billAmount ? <span className="font-bold text-green-500">₹{trip.billAmount.toFixed(0)}</span> : '--'}
+                  {trip.billAmount ? <span className="font-bold text-white">₹{trip.billAmount.toFixed(0)}</span> : <span className="text-gray-600">--</span>}
                 </td>
                 <td className="p-4 text-right">
                   <div className="flex justify-end gap-2">
                     {trip.status === 'completed' && (
-                      <button 
-                        onClick={() => generateInvoicePDF(trip)} 
-                        className="text-white hover:bg-white/10 p-2 rounded-lg border border-gray-800 transition-all"
-                        title="Download PDF Bill"
-                      >
+                      <button onClick={() => generateInvoicePDF(trip)} className="text-gray-400 hover:text-white p-2 border border-gray-800 rounded" title="Download PDF">
                         {ICONS.Reports}
                       </button>
                     )}
-                    {trip.status === 'completed' && trip.paymentStatus !== 'collected' && (
-                      <button onClick={() => setShowPaymentModal(trip)} className="text-green-500 hover:bg-green-600 hover:text-white p-2 rounded-lg transition-all">
-                        {ICONS.Finance}
-                      </button>
-                    )}
-                    <button onClick={() => { setSelectedTrip(trip); setIsEditMode(false); }} className="text-gray-400 hover:text-white p-2">
+                    <button onClick={() => { setSelectedTrip(trip); setIsEditMode(false); }} className="text-gray-400 hover:text-white p-2 border border-gray-800 rounded">
                       {ICONS.View}
                     </button>
-                    {canEdit && trip.status !== 'completed' && trip.status !== 'cancelled' && (
-                      <button onClick={() => { setSelectedTrip(trip); setIsEditMode(true); }} className="text-purple-400 p-2">
+                    {canModify && trip.status !== 'completed' && trip.status !== 'cancelled' && (
+                      <button onClick={() => { setSelectedTrip(trip); setIsEditMode(true); }} className="text-purple-400 p-2 border border-purple-500/20 rounded">
                         {ICONS.Edit}
                       </button>
                     )}
@@ -277,9 +333,12 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
             ))}
           </tbody>
         </table>
+        {filteredTrips.length === 0 && (
+          <div className="p-12 text-center text-gray-500 italic">No records found matching your current filter criteria.</div>
+        )}
       </div>
 
-      {showPaymentModal && (
+      {showPaymentModal && canModify && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[110] p-4">
           <div className="bg-gray-950 border border-gray-800 rounded-3xl w-full max-w-sm p-8 shadow-2xl">
             <h3 className="text-xl font-bold mb-2">Process Payment</h3>
@@ -344,8 +403,8 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
                     </div>
                  </div>
 
-                 {selectedTrip.status === 'unassigned' && (
-                    <div className="bg-yellow-900/10 border-2 border-dashed border-yellow-500/30 rounded-2xl p-6 animate-pulse">
+                 {selectedTrip.status === 'unassigned' && canModify && (
+                    <div className="bg-yellow-900/10 border-2 border-dashed border-yellow-500/30 rounded-2xl p-6">
                       <h4 className="text-[10px] font-black text-yellow-500 uppercase mb-4">Assign Driver Partner</h4>
                       <select 
                         className="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-sm focus:border-yellow-500 outline-none"
@@ -431,7 +490,7 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
         </div>
       )}
 
-      {showBookingModal && (
+      {showBookingModal && isAdmin && (
         <TripBookingModal isOpen={showBookingModal} onClose={() => setShowBookingModal(false)} customers={customers} setCustomers={setCustomers} setTrips={setTrips} />
       )}
     </div>

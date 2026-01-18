@@ -39,7 +39,7 @@ const CustomerManagement: React.FC<CustomerManagementProps> = ({ customers, setC
 
   const handleUpdateCustomer = (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedCustomer) {
+    if (selectedCustomer && isAdmin) {
       setCustomers(prev => prev.map(c => c.id === selectedCustomer.id ? selectedCustomer : c));
       setSelectedCustomer(null);
     }
@@ -58,12 +58,14 @@ const CustomerManagement: React.FC<CustomerManagementProps> = ({ customers, setC
           <h2 className="text-2xl font-bold">Client Registry</h2>
           <p className="text-gray-400 text-sm">Onboard and manage customer profiles</p>
         </div>
-        <button 
-          onClick={() => setShowAddModal(true)}
-          className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-lg shadow-purple-900/40"
-        >
-          {ICONS.Plus} Register Customer
-        </button>
+        {isAdmin && (
+          <button 
+            onClick={() => setShowAddModal(true)}
+            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-lg shadow-purple-900/40"
+          >
+            {ICONS.Plus} Register Customer
+          </button>
+        )}
       </div>
 
       <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden">
@@ -97,21 +99,25 @@ const CustomerManagement: React.FC<CustomerManagementProps> = ({ customers, setC
                 </td>
                 <td className="p-4 text-right">
                   <div className="flex justify-end gap-3">
-                    <button 
-                      onClick={() => setSelectedCustomer(c)} 
-                      className="text-purple-500 hover:text-purple-400"
-                      title="Edit Profile"
-                    >
-                      {ICONS.Edit}
-                    </button>
-                    {isAdmin && (
-                      <button 
-                        onClick={() => handleDeleteCustomer(c.id)} 
-                        className="text-red-500 hover:text-red-400"
-                        title="Delete Client"
-                      >
-                        {ICONS.Delete}
-                      </button>
+                    {isAdmin ? (
+                      <>
+                        <button 
+                          onClick={() => setSelectedCustomer(c)} 
+                          className="text-purple-500 hover:text-purple-400"
+                          title="Edit Profile"
+                        >
+                          {ICONS.Edit}
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteCustomer(c.id)} 
+                          className="text-red-500 hover:text-red-400"
+                          title="Delete Client"
+                        >
+                          {ICONS.Delete}
+                        </button>
+                      </>
+                    ) : (
+                      <span className="text-[10px] text-gray-600 italic">View Only</span>
                     )}
                   </div>
                 </td>
@@ -122,7 +128,7 @@ const CustomerManagement: React.FC<CustomerManagementProps> = ({ customers, setC
       </div>
 
       {/* Edit Customer Modal */}
-      {selectedCustomer && (
+      {selectedCustomer && isAdmin && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-gray-950 border border-gray-800 rounded-3xl w-full max-w-lg p-8 animate-in fade-in zoom-in duration-200">
             <h3 className="text-xl font-bold mb-6 text-purple-500">Modify Profile: {selectedCustomer.name}</h3>
@@ -157,7 +163,7 @@ const CustomerManagement: React.FC<CustomerManagementProps> = ({ customers, setC
       )}
 
       {/* Add Customer Modal */}
-      {showAddModal && (
+      {showAddModal && isAdmin && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-gray-950 border border-gray-800 rounded-3xl w-full max-w-lg p-8 animate-in fade-in zoom-in duration-200">
             <h3 className="text-xl font-bold mb-6 text-purple-500">Onboard New Client</h3>

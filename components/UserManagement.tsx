@@ -6,9 +6,10 @@ import { ICONS } from '../constants.tsx';
 interface UserManagementProps {
   users: User[];
   setUsers: React.Dispatch<React.SetStateAction<User[]>>;
+  currentUser: User;
 }
 
-const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers }) => {
+const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, currentUser }) => {
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [formData, setFormData] = useState({
@@ -19,6 +20,20 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers }) => {
     password: '',
     role: UserRole.OPERATION_EXECUTIVE
   });
+
+  const isAdmin = currentUser.role === UserRole.ADMIN;
+
+  // Strict check: if a non-admin somehow reaches here, show a blank state or access denied
+  if (!isAdmin) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center p-12 bg-gray-900 border border-red-500/20 rounded-3xl">
+          <h2 className="text-2xl font-black text-red-500 mb-2">ACCESS DENIED</h2>
+          <p className="text-gray-400">Administrative clearance required for this module.</p>
+        </div>
+      </div>
+    );
+  }
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,10 +80,13 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers }) => {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Staff & Partner Access</h2>
+        <div>
+          <h2 className="text-2xl font-bold">Staff Management</h2>
+          <p className="text-xs text-gray-500">Add, modify or remove operational staff accounts</p>
+        </div>
         <button 
           onClick={() => { setEditingUser(null); setShowModal(true); }}
-          className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all"
+          className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-lg shadow-purple-900/40"
         >
           {ICONS.Plus} Register New Staff
         </button>
@@ -78,39 +96,41 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers }) => {
         <table className="w-full text-left text-sm">
           <thead className="bg-gray-950 text-gray-400 border-b border-gray-800">
             <tr>
-              <th className="p-4 font-medium">Name / ID</th>
-              <th className="p-4 font-medium">Contact</th>
-              <th className="p-4 font-medium">Role</th>
-              <th className="p-4 font-medium">Username</th>
-              <th className="p-4 font-medium">Actions</th>
+              <th className="p-4 font-medium uppercase tracking-wider text-[10px]">Name / ID</th>
+              <th className="p-4 font-medium uppercase tracking-wider text-[10px]">Contact</th>
+              <th className="p-4 font-medium uppercase tracking-wider text-[10px]">Role</th>
+              <th className="p-4 font-medium uppercase tracking-wider text-[10px]">Username</th>
+              <th className="p-4 font-medium uppercase tracking-wider text-[10px] text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
             {users.filter(u => u.role !== UserRole.CUSTOMER).map(u => (
               <tr key={u.id} className="hover:bg-gray-800/50 transition-colors">
                 <td className="p-4">
-                  <div className="font-bold">{u.name}</div>
-                  <div className="text-[10px] text-gray-500 font-mono">{u.id}</div>
+                  <div className="font-bold text-white">{u.name}</div>
+                  <div className="text-[10px] text-gray-500 font-mono tracking-tighter">{u.id}</div>
                 </td>
                 <td className="p-4">
-                  <div className="text-sm">{u.mobile || 'N/A'}</div>
-                  <div className="text-[10px] text-gray-500 truncate max-w-[150px]">{u.address || 'No address'}</div>
+                  <div className="text-sm text-gray-300">{u.mobile || 'N/A'}</div>
+                  <div className="text-[10px] text-gray-500 truncate max-w-[150px]">{u.address || 'Address withheld'}</div>
                 </td>
                 <td className="p-4">
-                  <span className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase ${
-                    u.role === UserRole.ADMIN ? 'bg-purple-900 text-purple-400' : 'bg-gray-800 text-gray-400'
+                  <span className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${
+                    u.role === UserRole.ADMIN ? 'bg-purple-900/40 text-purple-400 border border-purple-500/20' : 'bg-gray-800 text-gray-400'
                   }`}>
                     {u.role}
                   </span>
                 </td>
                 <td className="p-4 text-gray-400 font-mono text-xs">{u.username}</td>
-                <td className="p-4 flex gap-3">
-                  <button onClick={() => handleEdit(u)} className="text-blue-500 hover:text-blue-400" title="Edit">
-                    {ICONS.Edit}
-                  </button>
-                  <button onClick={() => handleDelete(u.id)} className="text-red-500 hover:text-red-400" title="Delete">
-                    {ICONS.Delete}
-                  </button>
+                <td className="p-4 text-right">
+                  <div className="flex justify-end gap-3">
+                    <button onClick={() => handleEdit(u)} className="text-blue-500 hover:text-blue-400 transition-colors" title="Edit Profile">
+                      {ICONS.Edit}
+                    </button>
+                    <button onClick={() => handleDelete(u.id)} className="text-red-500 hover:text-red-400 transition-colors" title="Remove Account">
+                      {ICONS.Delete}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
