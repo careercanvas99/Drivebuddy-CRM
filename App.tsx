@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { User, UserRole, Driver, Customer, Trip, Notification, CompanySettings, GitHubConfig } from './types.ts';
 import Login from './components/Login.tsx';
@@ -62,19 +62,29 @@ const App: React.FC = () => {
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isGitHubSyncActive, setIsGitHubSyncActive] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'pending' | 'error' | 'offline'>('offline');
+  
+  const isInitializing = useRef(true);
+  // Replaced NodeJS.Timeout with ReturnType<typeof setTimeout> to fix the "Cannot find namespace 'NodeJS'" error in browser environments.
+  const syncTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // GitHub Data Handshake
+  // GITHUB SYNC ENGINE: CLOUD PULL
   const initializeFromGitHub = useCallback(async () => {
     const config = companySettings.githubConfig;
-    if (!config?.repository || !config?.token) return;
+    if (!config?.repository || !config?.token) {
+      isInitializing.current = false;
+      return;
+    }
 
-    console.log('[GitHub Sync] Fetching production data from repository...');
+    setSyncStatus('pending');
+    console.log('[Cloud Sync] Fetching production data...');
     try {
       const url = `https://api.github.com/repos/${config.repository}/contents/${config.filePath}?ref=${config.branch}`;
       const response = await fetch(url, {
         headers: {
           'Authorization': `token ${config.token}`,
-          'Accept': 'application/vnd.github.v3+json'
+          'Accept': 'application/vnd.github.v3+json',
+          'Cache-Control': 'no-cache'
         }
       });
 
@@ -82,17 +92,25 @@ const App: React.FC = () => {
         const data = await response.json();
         const content = JSON.parse(atob(data.content));
         
-        // Populate state with cloud data
+        // Priority Sync: Overwrite local with cloud data if cloud is newer
         if (content.users) setUsers(content.users);
         if (content.drivers) setDrivers(content.drivers);
         if (content.customers) setCustomers(content.customers);
         if (content.trips) setTrips(content.trips);
         
         setIsGitHubSyncActive(true);
-        console.log('[GitHub Sync] Handshake Successful. State synchronized.');
+        setSyncStatus('synced');
+        console.log('[Cloud Sync] Handshake Successful. State synchronized.');
+      } else if (response.status === 404) {
+        console.warn('[Cloud Sync] Data file not found in repo. Preparing first push.');
+        setIsGitHubSyncActive(true);
+        setSyncStatus('synced');
       }
     } catch (error) {
-      console.error('[GitHub Sync] Error during initialization:', error);
+      console.error('[Cloud Sync] Error during initialization:', error);
+      setSyncStatus('error');
+    } finally {
+      isInitializing.current = false;
     }
   }, [companySettings.githubConfig]);
 
@@ -100,34 +118,42 @@ const App: React.FC = () => {
     initializeFromGitHub();
   }, [initializeFromGitHub]);
 
-  const pushToGitHub = async () => {
+  // GITHUB SYNC ENGINE: CLOUD PUSH (DEBOUNCED)
+  const pushToGitHub = useCallback(async () => {
+    if (isInitializing.current || !isGitHubSyncActive) return;
+    
     const config = companySettings.githubConfig;
     if (!config?.repository || !config?.token) return;
 
-    console.log('[GitHub Sync] Preparing Git Commit...');
+    setSyncStatus('pending');
     try {
       const url = `https://api.github.com/repos/${config.repository}/contents/${config.filePath}?ref=${config.branch}`;
       
-      // 1. Get current SHA
+      // 1. Mandatory SHA Refresh (Avoids 409 Conflict)
       const getResponse = await fetch(url, {
-        headers: { 'Authorization': `token ${config.token}` }
+        headers: { 
+          'Authorization': `token ${config.token}`,
+          'Cache-Control': 'no-cache'
+        }
       });
+      
       let sha = '';
       if (getResponse.ok) {
         const fileData = await getResponse.json();
         sha = fileData.sha;
       }
 
-      // 2. Prepare Payload
+      // 2. Prepare Multi-Modality Payload
       const payload = {
         users,
         drivers,
         customers,
         trips,
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
+        clientSystem: 'Drivebuddy-Web-CRM'
       };
 
-      // 3. Push Commit
+      // 3. Commit to Repo
       const putResponse = await fetch(url, {
         method: 'PUT',
         headers: {
@@ -135,20 +161,40 @@ const App: React.FC = () => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          message: `CRM Sync: Operational Update ${new Date().toLocaleTimeString()}`,
-          content: btoa(JSON.stringify(payload, null, 2)),
+          message: `CRM Data Update: ${new Date().toLocaleString()}`,
+          content: btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2)))),
           sha: sha || undefined,
           branch: config.branch
         })
       });
 
       if (putResponse.ok) {
-        console.log('[GitHub Sync] Data persisted to Repository.');
+        setSyncStatus('synced');
+        console.log('[Cloud Sync] Data persisted to Repository.');
+      } else {
+        throw new Error('Push failed');
       }
     } catch (error) {
-      console.error('[GitHub Sync] Commit Failed:', error);
+      console.error('[Cloud Sync] Commit Failed:', error);
+      setSyncStatus('error');
     }
-  };
+  }, [companySettings.githubConfig, isGitHubSyncActive, users, drivers, customers, trips]);
+
+  // Debounced Sync Trigger
+  useEffect(() => {
+    if (syncTimeout.current) clearTimeout(syncTimeout.current);
+    syncTimeout.current = setTimeout(() => {
+      if (!isInitializing.current && isGitHubSyncActive) {
+        pushToGitHub();
+      }
+    }, 2000); // Wait for 2 seconds of inactivity before pushing
+    
+    // Always update local storage immediately for crash recovery
+    localStorage.setItem('db_all_users', JSON.stringify(users));
+    localStorage.setItem('db_drivers', JSON.stringify(drivers));
+    localStorage.setItem('db_customers', JSON.stringify(customers));
+    localStorage.setItem('db_trips', JSON.stringify(trips));
+  }, [users, drivers, customers, trips, pushToGitHub, isGitHubSyncActive]);
 
   useEffect(() => {
     localStorage.setItem('db_user', JSON.stringify(user));
@@ -158,26 +204,6 @@ const App: React.FC = () => {
     const { githubConfig, ...publicSettings } = companySettings;
     localStorage.setItem('db_company_public', JSON.stringify(publicSettings));
   }, [companySettings]);
-
-  useEffect(() => {
-    localStorage.setItem('db_all_users', JSON.stringify(users));
-    if (isGitHubSyncActive) pushToGitHub();
-  }, [users]);
-
-  useEffect(() => {
-    localStorage.setItem('db_drivers', JSON.stringify(drivers));
-    if (isGitHubSyncActive) pushToGitHub();
-  }, [drivers]);
-
-  useEffect(() => {
-    localStorage.setItem('db_customers', JSON.stringify(customers));
-    if (isGitHubSyncActive) pushToGitHub();
-  }, [customers]);
-
-  useEffect(() => {
-    localStorage.setItem('db_trips', JSON.stringify(trips));
-    if (isGitHubSyncActive) pushToGitHub();
-  }, [trips]);
 
   const handleLogin = (userData: User) => setUser(userData);
   const handleLogout = () => setUser(null);
@@ -214,16 +240,21 @@ const App: React.FC = () => {
       <div className="flex h-screen bg-black overflow-hidden">
         <Sidebar role={user.role} onLogout={handleLogout} />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          <Navbar user={user} notifications={notifications} setNotifications={setNotifications} />
+          <Navbar 
+            user={user} 
+            notifications={notifications} 
+            setNotifications={setNotifications} 
+            syncStatus={syncStatus}
+          />
           
           {/* GitHub Connection Banner */}
           {!isGitHubSyncActive && user.role === UserRole.ADMIN && (
             <div className="bg-purple-500/10 border-b border-purple-500/20 px-6 py-2 flex items-center justify-between">
                <p className="text-[10px] text-purple-400 font-black uppercase tracking-widest flex items-center gap-2">
                  <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse"></span>
-                 GitHub Cloud Sync Inactive. Configure Repository in Settings for Remote Persistence.
+                 GitHub Cloud Sync Inactive. Connect Repository to safeguard operational trip data.
                </p>
-               <button onClick={() => window.location.hash = '/settings'} className="text-[9px] bg-purple-500 text-white px-3 py-1 rounded-full font-black uppercase">Setup Sync</button>
+               <button onClick={() => window.location.hash = '/settings'} className="text-[9px] bg-purple-500 text-white px-3 py-1 rounded-full font-black uppercase">Enable Persistence</button>
             </div>
           )}
 

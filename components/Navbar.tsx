@@ -7,9 +7,10 @@ interface NavbarProps {
   user: User;
   notifications: Notification[];
   setNotifications: React.Dispatch<React.SetStateAction<Notification[]>>;
+  syncStatus?: 'synced' | 'pending' | 'error' | 'offline';
 }
 
-const Navbar: React.FC<NavbarProps> = ({ user, notifications, setNotifications }) => {
+const Navbar: React.FC<NavbarProps> = ({ user, notifications, setNotifications, syncStatus = 'offline' }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -22,10 +23,27 @@ const Navbar: React.FC<NavbarProps> = ({ user, notifications, setNotifications }
     setShowNotifications(false);
   };
 
+  const getSyncColor = () => {
+    switch (syncStatus) {
+      case 'synced': return 'bg-green-500';
+      case 'pending': return 'bg-yellow-500 animate-pulse';
+      case 'error': return 'bg-red-500';
+      default: return 'bg-gray-700';
+    }
+  };
+
   return (
     <header className="h-16 bg-gray-950 border-b border-gray-800 px-6 flex items-center justify-between relative">
-      <div className="flex items-center">
-        <h2 className="text-lg font-semibold text-white">Welcome back, {user.name}</h2>
+      <div className="flex items-center gap-4">
+        <h2 className="text-lg font-semibold text-white hidden md:block">Drivebuddy Operations Hub</h2>
+        
+        {/* Cloud Sync Status Pill */}
+        <div className="flex items-center gap-2 bg-black/40 border border-gray-800 px-3 py-1.5 rounded-full">
+           <div className={`w-1.5 h-1.5 rounded-full ${getSyncColor()}`}></div>
+           <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">
+             {syncStatus === 'synced' ? 'Cloud Verified' : syncStatus === 'pending' ? 'Syncing...' : syncStatus === 'error' ? 'Sync Conflict' : 'Local Mode'}
+           </span>
+        </div>
       </div>
 
       <div className="flex items-center space-x-4">
@@ -69,12 +87,12 @@ const Navbar: React.FC<NavbarProps> = ({ user, notifications, setNotifications }
         </div>
 
         <div className="flex items-center space-x-3 pl-4 border-l border-gray-800">
-          <div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-white font-bold">
+          <div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-white font-bold text-xs">
             {user.name.charAt(0)}
           </div>
           <div className="hidden sm:block">
-            <p className="text-sm font-medium text-white leading-none">{user.name}</p>
-            <p className="text-xs text-gray-500 mt-1">{user.role}</p>
+            <p className="text-xs font-black text-white leading-none tracking-tight uppercase">{user.name}</p>
+            <p className="text-[9px] text-gray-500 mt-1 font-bold uppercase tracking-widest">{user.role}</p>
           </div>
         </div>
       </div>
