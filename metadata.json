@@ -1,0 +1,8 @@
+{
+  "name": "Drivebuddy CRM",
+  "description": "Professional driver management CRM with real-time tracking, billing, and role-based access control.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
