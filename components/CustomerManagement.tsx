@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { Customer, Trip, User, UserRole } from '../types.ts';
 import { ICONS } from '../constants.tsx';
+import { supabase } from '../lib/supabase.js';
 
 interface CustomerManagementProps {
   customers: Customer[];
@@ -23,31 +24,78 @@ const CustomerManagement: React.FC<CustomerManagementProps> = ({ customers, setC
 
   const isAdmin = user.role === UserRole.ADMIN;
 
-  const handleAddCustomer = (e: React.FormEvent) => {
+  const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     const id = `CUST-${Math.floor(100 + Math.random() * 900)}`;
-    setCustomers(prev => [...prev, { ...newCustomer, id } as Customer]);
-    setShowAddModal(false);
-    setNewCustomer({
-      name: '',
-      mobile: '',
-      homeAddress: '',
-      officeAddress: '',
-      vehicleModel: ''
-    });
-  };
+    const customerData = { ...newCustomer, id } as Customer;
 
-  const handleUpdateCustomer = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (selectedCustomer && isAdmin) {
-      setCustomers(prev => prev.map(c => c.id === selectedCustomer.id ? selectedCustomer : c));
-      setSelectedCustomer(null);
+    try {
+      const { error } = await supabase
+        .from('customers')
+        .insert([customerData]);
+
+      if (error) {
+        console.error('Supabase Save Error Details:', error.message, error.details, error.hint);
+        alert('Failed to save data: ' + error.message);
+      } else {
+        alert('Customer saved successfully');
+        setCustomers(prev => [...prev, customerData]);
+        setShowAddModal(false);
+        setNewCustomer({
+          name: '',
+          mobile: '',
+          homeAddress: '',
+          officeAddress: '',
+          vehicleModel: ''
+        });
+      }
+    } catch (err: any) {
+      console.error('Save Catch Error:', err.message || err);
+      alert('Failed to save data due to a connection error.');
     }
   };
 
-  const handleDeleteCustomer = (id: string) => {
+  const handleUpdateCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (selectedCustomer && isAdmin) {
+      try {
+        const { error } = await supabase
+          .from('customers')
+          .update(selectedCustomer)
+          .eq('id', selectedCustomer.id);
+
+        if (error) {
+          console.error('Supabase Update Error Details:', error.message, error.details, error.hint);
+          throw error;
+        }
+        
+        setCustomers(prev => prev.map(c => c.id === selectedCustomer.id ? selectedCustomer : c));
+        setSelectedCustomer(null);
+        alert('Customer profile updated successfully');
+      } catch (err: any) {
+        alert('Update failed: ' + (err.message || err));
+      }
+    }
+  };
+
+  const handleDeleteCustomer = async (id: string) => {
     if (confirm('DANGER: This will delete the customer and potentially orphan their history. Proceed?')) {
-      setCustomers(prev => prev.filter(c => c.id !== id));
+      try {
+        const { error } = await supabase
+          .from('customers')
+          .delete()
+          .eq('id', id);
+
+        if (error) {
+          console.error('Supabase Delete Error Details:', error.message, error.details, error.hint);
+          throw error;
+        }
+        
+        setCustomers(prev => prev.filter(c => c.id !== id));
+        alert('Customer deleted from registry');
+      } catch (err: any) {
+        alert('Deletion failed: ' + (err.message || err));
+      }
     }
   };
 

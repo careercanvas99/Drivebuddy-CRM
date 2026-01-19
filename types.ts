@@ -72,6 +72,14 @@ export interface Customer {
   vehicleModel: string;
 }
 
+export interface Lead {
+  id?: number;
+  customer_id: string;
+  status: string;
+  notes: string;
+  created_at?: string;
+}
+
 export interface Trip {
   id: string;
   customerId: string;

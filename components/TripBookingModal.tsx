@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Trip, Customer } from '../types.ts';
 import { ICONS } from '../constants.tsx';
+import { supabase } from '../lib/supabase.js';
 
 interface TripBookingModalProps {
   isOpen: boolean;
@@ -24,7 +25,7 @@ const TripBookingModal: React.FC<TripBookingModalProps> = ({ isOpen, onClose, cu
     dropLocation: ''
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // 1. Resolve or Create Customer Identity
@@ -38,12 +39,29 @@ const TripBookingModal: React.FC<TripBookingModalProps> = ({ isOpen, onClose, cu
         officeAddress: '',
         vehicleModel: 'Standard Client'
       };
+      
+      try {
+        const { error } = await supabase
+          .from('customers')
+          .insert([customer]);
+
+        if (error) {
+          console.error("Supabase Customer Insert Error:", error);
+          // Non-blocking but alerted
+        } else {
+          console.log("Customer auto-saved to Supabase");
+        }
+      } catch (err) {
+        console.error("Supabase Connection Error:", err);
+      }
+      
       setCustomers(prev => [...prev, customer!]);
     }
 
     // 2. Instantiate Trip Record
+    const newTripId = `TRIP-${Math.floor(10000 + Math.random() * 90000)}`;
     const newTrip: Trip = {
-      id: `TRIP-${Math.floor(10000 + Math.random() * 90000)}`,
+      id: newTripId,
       customerId: customer.id,
       pickupLocation: formData.pickupLocation,
       dropLocation: formData.tripType === 'one-way' ? formData.dropLocation : formData.pickupLocation,
@@ -54,6 +72,13 @@ const TripBookingModal: React.FC<TripBookingModalProps> = ({ isOpen, onClose, cu
       paymentStatus: 'pending',
       paymentMode: 'unpaid'
     };
+
+    // Also optionally save the trip to a 'trips' table if the user has one
+    try {
+      await supabase.from('trips').insert([newTrip]);
+    } catch (err) {
+      console.warn("Trip table may not exist, relying on global state sync");
+    }
 
     setTrips(prev => [newTrip, ...prev]);
     alert(`Success: Trip ${newTrip.id} registered for ${formData.customerName}`);

@@ -1,6 +1,7 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { supabase } from './lib/supabase.js';
 import { User, UserRole, Driver, Customer, Trip, Notification, CompanySettings, GitHubConfig, SupabaseConfig } from './types.ts';
 import Login from './components/Login.tsx';
 import Sidebar from './components/Sidebar.tsx';
@@ -41,8 +42,8 @@ const App: React.FC = () => {
       dbProvider: 'supabase',
       githubConfig: { repository: '', branch: 'main', filePath: 'data/db.json', token: '' },
       supabaseConfig: { 
-        url: 'sdpszoukdobcznfzhasi',
-        anonKey: 'sb_publishable_3A1GdmCQnhgrCC-j2qTNoQ_I3xw_AxA',
+        url: 'cvqpaleaybyiadhpfpyh',
+        anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2cXBhbGVheWJ5aWFkaHBmcHloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg3OTgxNjUsImV4cCI6MjA4NDM3NDE2NX0.Pd5b_kMhmwWZ70u3C5QOhxmBu0iZS4-EznBwvY6hfYg',
         tableName: 'crm_state' 
       }
     };
@@ -75,84 +76,67 @@ const App: React.FC = () => {
   const isInitializing = useRef(true);
   const syncTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const formatSupabaseUrl = (url: string) => {
-    if (!url) return '';
-    if (url.startsWith('http')) return url;
-    return `https://${url}.supabase.co`;
-  };
-
   const pushToCloud = useCallback(async () => {
     if (isInitializing.current || companySettings.dbProvider !== 'supabase') return;
     setSyncStatus('pending');
 
     const payload = { users, drivers, customers, trips, updatedAt: new Date().toISOString() };
-    const config = companySettings.supabaseConfig!;
-    const fullUrl = formatSupabaseUrl(config.url);
+    const tableName = companySettings.supabaseConfig?.tableName || 'crm_state';
 
     try {
-      // Direct PostgREST Upsert via Supabase REST API
-      const response = await fetch(`${fullUrl}/rest/v1/${config.tableName}?id=eq.1`, {
-        method: 'PATCH',
-        headers: { 
-          'apikey': config.anonKey, 
-          'Authorization': `Bearer ${config.anonKey}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=minimal'
-        },
-        body: JSON.stringify({ payload })
-      });
+      const { error } = await supabase
+        .from(tableName)
+        .upsert({ id: 1, payload }, { onConflict: 'id' });
 
-      if (response.status === 404 || response.status === 204 || response.ok) {
-        // If 204 or 200, it's a success. If 404 on PATCH, we might need to POST first (seed)
-        if (response.status === 404 || (response.ok && response.status !== 204 && response.status !== 200)) {
-           await fetch(`${fullUrl}/rest/v1/${config.tableName}`, {
-            method: 'POST',
-            headers: { 
-              'apikey': config.anonKey, 
-              'Authorization': `Bearer ${config.anonKey}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ id: 1, payload })
-          });
-        }
-        setSyncStatus('synced');
-      } else {
-        throw new Error('Supabase Sync Failed');
+      if (error) {
+        console.error('Supabase Sync Error Details:', error.message, error.details, error.hint);
+        throw error;
       }
-    } catch (e) {
+
+      setSyncStatus('synced');
+      setCompanySettings(prev => ({
+        ...prev,
+        supabaseConfig: { ...prev.supabaseConfig!, lastSync: new Date().toLocaleTimeString() }
+      }));
+    } catch (e: any) {
+      console.error('Supabase Sync Error:', e.message || e);
       setSyncStatus('error');
     }
   }, [companySettings, users, drivers, customers, trips]);
 
   const initializeData = useCallback(async () => {
     if (companySettings.dbProvider === 'supabase') {
-      const config = companySettings.supabaseConfig;
-      const fullUrl = formatSupabaseUrl(config?.url || '');
-      if (!fullUrl || !config?.anonKey) { isInitializing.current = false; return; }
-      
       setSyncStatus('pending');
+      const tableName = companySettings.supabaseConfig?.tableName || 'crm_state';
+      
       try {
-        const response = await fetch(`${fullUrl}/rest/v1/${config.tableName}?id=eq.1&select=payload`, {
-          headers: { 'apikey': config.anonKey, 'Authorization': `Bearer ${config.anonKey}` }
-        });
-        if (response.ok) {
-          const result = await response.json();
-          if (result && result.length > 0) {
-            const content = result[0].payload;
-            if (content.users) setUsers(content.users);
-            if (content.drivers) setDrivers(content.drivers);
-            if (content.customers) setCustomers(content.customers);
-            if (content.trips) setTrips(content.trips);
-            setSyncStatus('synced');
-          } else {
-            // New project, seed current state
-            isInitializing.current = false;
-            pushToCloud();
+        const { data, error } = await supabase
+          .from(tableName)
+          .select('payload')
+          .eq('id', 1)
+          .single();
+
+        if (error) {
+          if (error.code === 'PGRST116') {
+             // Row not found, this is fine for first run
+             isInitializing.current = false;
+             await pushToCloud();
+             return;
           }
-        } else {
-          setSyncStatus('error');
+          console.error('Supabase Initialization Error Details:', error.message, error.details, error.hint);
+          throw error;
         }
-      } catch (e) { 
+
+        if (data?.payload) {
+          const content = data.payload;
+          if (content.users) setUsers(content.users);
+          if (content.drivers) setDrivers(content.drivers);
+          if (content.customers) setCustomers(content.customers);
+          if (content.trips) setTrips(content.trips);
+          setSyncStatus('synced');
+        }
+      } catch (e: any) { 
+        console.error('Supabase Initialization Error:', e.message || e);
         setSyncStatus('error'); 
       }
     }
@@ -182,6 +166,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const { githubConfig, supabaseConfig, ...publicSettings } = companySettings;
     localStorage.setItem('db_company_public', JSON.stringify(publicSettings));
+    localStorage.setItem('db_company_internal_supabase', JSON.stringify(supabaseConfig));
   }, [companySettings]);
 
   const handleLogin = (userData: User) => setUser(userData);
