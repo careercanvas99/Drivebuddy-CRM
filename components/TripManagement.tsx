@@ -69,7 +69,10 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
   const generateInvoicePDF = (trip: Trip) => {
     const doc = new jsPDF();
     const customer = customers.find(c => c.id === trip.customerId);
+    const driver = drivers.find(d => d.id === trip.driverId);
     const finalAmount = trip.billAmount || 0;
+    
+    // Billing Logic
     const billingDetails = calculateFareInternal(
       new Date(trip.startDateTime),
       new Date(trip.endDateTime),
@@ -79,37 +82,135 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
     const derivedBase = Math.round(finalAmount / 1.18);
     const derivedGst = finalAmount - derivedBase;
 
+    // Header Setup
     let headerY = 15;
     if (companySettings.logo) {
       try {
-        doc.addImage(companySettings.logo, 'PNG', 20, headerY, 45, 20);
-        headerY += 28;
+        doc.addImage(companySettings.logo, 'PNG', 20, headerY, 40, 18);
+        headerY += 25;
       } catch (e) { headerY += 5; }
     } else { headerY += 10; }
 
-    doc.setFontSize(10);
-    doc.text(doc.splitTextToSize(companySettings.address, 70), 20, headerY);
-    headerY += 15;
-    doc.text(`Contact: ${companySettings.mobile}`, 20, headerY);
-
-    doc.setFontSize(30);
+    // Company Info
+    doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
-    doc.text("INVOICE", 130, 30);
-    doc.setFontSize(10);
+    doc.text(companySettings.name, 20, headerY);
     doc.setFont("helvetica", "normal");
-    doc.text(`Invoice No: ${trip.id}`, 130, 40);
-    doc.text(`Date: ${new Date().toLocaleDateString()}`, 130, 45);
+    const addressLines = doc.splitTextToSize(companySettings.address, 65);
+    doc.text(addressLines, 20, headerY + 5);
+    doc.text(`Mobile: ${companySettings.mobile}`, 20, headerY + 5 + (addressLines.length * 4));
+
+    // Invoice Title & Meta
+    doc.setFontSize(26);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(147, 51, 234); // Purple-600
+    doc.text("INVOICE", 130, 30);
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.text(`ID: ${trip.id}`, 130, 40);
+    doc.text(`Dated: ${new Date().toLocaleDateString()}`, 130, 45);
+
+    headerY += 25 + (addressLines.length * 4);
+
+    // Bill To & Trip Details section
+    doc.setDrawColor(230, 230, 230);
+    doc.line(20, headerY, 190, headerY);
+    
+    headerY += 10;
+    doc.setFont("helvetica", "bold");
+    doc.text("BILL TO:", 20, headerY);
+    doc.setFont("helvetica", "normal");
+    doc.text(customer?.name || "Guest Client", 20, headerY + 5);
+    doc.text(customer?.mobile || "N/A", 20, headerY + 10);
+    doc.text(customer?.homeAddress || "N/A", 20, headerY + 15);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("TRIP SUMMARY:", 110, headerY);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Type: ${trip.tripType.toUpperCase()} (${billingDetails.hours}h ${billingDetails.mins}m)`, 110, headerY + 5);
+    doc.text(`Driver: ${driver?.name || 'Assigned'}`, 110, headerY + 10);
+    doc.text(`Pickup: ${trip.pickupLocation}`, 110, headerY + 15);
+    doc.text(`Drop: ${trip.dropLocation}`, 110, headerY + 20);
+
+    headerY += 35;
+
+    // Table Header
+    doc.setFillColor(245, 245, 245);
+    doc.rect(20, headerY, 170, 8, 'F');
+    doc.setFont("helvetica", "bold");
+    doc.text("SERVICE DESCRIPTION", 25, headerY + 6);
+    doc.text("RATE LOGIC", 90, headerY + 6);
+    doc.text("AMOUNT (INR)", 160, headerY + 6);
+
+    // Table Content
+    headerY += 15;
+    doc.setFont("helvetica", "normal");
+    doc.text("Professional Chauffeur Services", 25, headerY);
+    doc.text(`${billingDetails.hours} hrs ${billingDetails.mins} mins`, 90, headerY);
+    doc.text(derivedBase.toFixed(2), 160, headerY);
+
+    // Summary Section
+    headerY += 20;
+    doc.line(110, headerY, 190, headerY);
+    headerY += 10;
+    doc.text("Sub-total:", 130, headerY);
+    doc.text(derivedBase.toFixed(2), 160, headerY);
+    
+    headerY += 6;
+    doc.text("GST (18%):", 130, headerY);
+    doc.text(derivedGst.toFixed(2), 160, headerY);
+
+    headerY += 10;
+    doc.setFillColor(147, 51, 234);
+    doc.rect(125, headerY - 5, 65, 10, 'F');
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("TOTAL:", 130, headerY + 1.5);
+    doc.text(`INR ${finalAmount.toFixed(2)}`, 160, headerY + 1.5);
+
+    // Footer
+    doc.setTextColor(150, 150, 150);
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "italic");
+    doc.text("This is an electronically generated document. No signature required.", 105, 280, { align: "center" });
 
     doc.save(`Invoice_${trip.id}.pdf`);
   };
 
   // CSV Export Engine
   const downloadCSV = () => {
-    const headers = ["Trip ID", "Customer", "Mobile", "Driver", "Pickup", "Drop", "Type", "Status", "Date", "Base Amount", "Total Amount"];
+    const headers = [
+      "Trip ID", 
+      "Customer", 
+      "Mobile", 
+      "Driver", 
+      "Pickup", 
+      "Drop", 
+      "Type", 
+      "Status", 
+      "Start Date & Time", 
+      "End Date & Time", 
+      "Duration (HH:MM)",
+      "Base Amount", 
+      "Total Amount"
+    ];
+
     const rows = filteredTrips.map(t => {
       const cust = customers.find(c => c.id === t.customerId);
       const drv = drivers.find(d => d.id === t.driverId);
       const base = Math.round((t.billAmount || 0) / 1.18);
+      
+      let durationStr = "--";
+      if (t.startDateTime && t.endDateTime && t.status === 'completed') {
+        const billing = calculateFareInternal(
+          new Date(t.startDateTime),
+          new Date(t.endDateTime),
+          "No", "Instation", t.tripType === 'one-way' ? "One Way" : "Round Trip"
+        );
+        durationStr = `${String(billing.hours).padStart(2, '0')}:${String(billing.mins).padStart(2, '0')}`;
+      }
+
       return [
         t.id,
         cust?.name || 'Guest',
@@ -119,7 +220,9 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
         `"${t.dropLocation}"`,
         t.tripType,
         t.status,
-        new Date(t.startDateTime).toLocaleDateString(),
+        `"${new Date(t.startDateTime).toLocaleString()}"`,
+        t.endDateTime ? `"${new Date(t.endDateTime).toLocaleString()}"` : '"--"',
+        durationStr,
         base,
         t.billAmount || 0
       ];

@@ -20,7 +20,13 @@ export interface GitHubConfig {
   filePath: string;
   token: string;
   lastSync?: string;
-  workflowId?: string; // For GitHub Actions trigger
+}
+
+export interface SupabaseConfig {
+  url: string;
+  anonKey: string;
+  tableName: string;
+  lastSync?: string;
 }
 
 export interface CompanySettings {
@@ -29,6 +35,8 @@ export interface CompanySettings {
   mobile: string;
   logo?: string;
   githubConfig?: GitHubConfig;
+  supabaseConfig?: SupabaseConfig;
+  dbProvider: 'none' | 'github' | 'supabase';
 }
 
 export interface User {
