@@ -2,8 +2,7 @@
 import React, { useState, useRef } from 'react';
 import { Driver, Trip, User, UserRole } from '../types.ts';
 import { ICONS } from '../constants.tsx';
-import MapTracker from './MapTracker.tsx';
-import { calculateFareInternal } from './TripEstimation.tsx';
+import { supabase } from '../lib/supabase.js';
 
 interface DriverManagementProps {
   drivers: Driver[];
@@ -16,11 +15,11 @@ const DriverManagement: React.FC<DriverManagementProps> = ({ drivers, setDrivers
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
   const [showMap, setShowMap] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [newDriver, setNewDriver] = useState<Partial<Driver>>({
-    id: '',
     name: '',
     licenseNumber: '',
     issueDate: '',
@@ -43,25 +42,45 @@ const DriverManagement: React.FC<DriverManagementProps> = ({ drivers, setDrivers
     }
   };
 
-  const handleAddDriver = (e: React.FormEvent) => {
+  const handleAddDriver = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newDriver.id) return alert("Driver ID is mandatory");
+    setIsSubmitting(true);
     
-    setDrivers(prev => [...prev, { ...newDriver } as Driver]);
-    setShowAddModal(false);
-    setNewDriver({
-      id: '',
-      name: '',
-      licenseNumber: '',
-      issueDate: '',
-      expiryDate: '',
-      address: '',
-      permanentAddress: '',
-      profilePhoto: '',
-      status: 'available',
-      location: [12.9716, 77.5946]
-    });
-    alert('Driver onboarded successfully! Data synced to Render & PostgreSQL.');
+    try {
+      const { data, error } = await supabase
+        .from('drivers')
+        .insert([{
+          name: newDriver.name,
+          license_number: newDriver.licenseNumber,
+          issue_date: newDriver.issueDate,
+          expiry_date: newDriver.expiryDate,
+          status: newDriver.status,
+          location_lat: newDriver.location?.[0],
+          location_lng: newDriver.location?.[1]
+        }])
+        .select();
+
+      if (error) throw error;
+      
+      if (data) setDrivers(prev => [...prev, data[0] as Driver]);
+      setShowAddModal(false);
+      setNewDriver({
+        name: '',
+        licenseNumber: '',
+        issueDate: '',
+        expiryDate: '',
+        address: '',
+        permanentAddress: '',
+        profilePhoto: '',
+        status: 'available',
+        location: [12.9716, 77.5946]
+      });
+      alert('Driver onboarded successfully and synced to cloud.');
+    } catch (err: any) {
+      alert(`Onboarding Error: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const filteredDrivers = drivers.filter(d => statusFilter === 'all' || d.status === statusFilter);
@@ -175,10 +194,6 @@ const DriverManagement: React.FC<DriverManagementProps> = ({ drivers, setDrivers
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">Driver ID</label>
-                  <input required className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none shadow-inner" value={newDriver.id} onChange={e => setNewDriver({...newDriver, id: e.target.value})} placeholder="DB-DRV-XXX" />
-                </div>
-                <div className="space-y-2">
                   <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">Full Name</label>
                   <input required className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none shadow-inner" value={newDriver.name} onChange={e => setNewDriver({...newDriver, name: e.target.value})} placeholder="Enter name" />
                 </div>
@@ -206,7 +221,9 @@ const DriverManagement: React.FC<DriverManagementProps> = ({ drivers, setDrivers
 
               <div className="flex gap-4 pt-4">
                 <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 bg-gray-900 py-5 rounded-[2rem] font-black uppercase text-[10px] tracking-widest">Discard</button>
-                <button type="submit" className="flex-1 bg-purple-600 hover:bg-purple-700 py-5 rounded-[2rem] font-black uppercase text-[10px] tracking-widest shadow-2xl shadow-purple-900/40 transition-all">Onboard Partner</button>
+                <button disabled={isSubmitting} type="submit" className="flex-1 bg-purple-600 hover:bg-purple-700 py-5 rounded-[2rem] font-black uppercase text-[10px] tracking-widest shadow-2xl shadow-purple-900/40 transition-all disabled:opacity-50">
+                   {isSubmitting ? 'Syncing...' : 'Onboard Partner'}
+                </button>
               </div>
             </form>
           </div>

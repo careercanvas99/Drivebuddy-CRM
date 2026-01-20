@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { User, UserRole } from '../types.ts';
 import { ICONS } from '../constants.tsx';
+import { supabase } from '../lib/supabase.js';
 
 interface UserManagementProps {
   users: User[];
@@ -11,6 +12,7 @@ interface UserManagementProps {
 
 const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, currentUser }) => {
   const [showModal, setShowModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [formData, setFormData] = useState({
     name: '',
@@ -23,7 +25,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, curren
 
   const isAdmin = currentUser.role === UserRole.ADMIN;
 
-  // Strict check: if a non-admin somehow reaches here, show a blank state or access denied
   if (!isAdmin) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -35,27 +36,59 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, curren
     );
   }
 
-  const handleAdd = (e: React.FormEvent) => {
+  const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingUser) {
-      setUsers(prev => prev.map(u => u.id === editingUser.id ? { ...u, ...formData } : u));
-    } else {
-      const newUser: User = {
-        id: `USR-${Math.floor(Math.random() * 1000)}`,
-        ...formData
-      };
-      setUsers(prev => [...prev, newUser]);
+    setIsSubmitting(true);
+    
+    try {
+      if (editingUser) {
+        const { error } = await supabase
+          .from('users')
+          .update({
+            name: formData.name,
+            mobile: formData.mobile,
+            address: formData.address,
+            username: formData.username.toLowerCase().trim(),
+            password: formData.password,
+            role: formData.role
+          })
+          .eq('id', editingUser.id);
+        
+        if (error) throw error;
+        setUsers(prev => prev.map(u => u.id === editingUser.id ? { ...u, ...formData } : u));
+      } else {
+        const { data, error } = await supabase
+          .from('users')
+          .insert([{
+            name: formData.name,
+            mobile: formData.mobile,
+            address: formData.address,
+            username: formData.username.toLowerCase().trim(),
+            password: formData.password,
+            role: formData.role
+          }])
+          .select();
+        
+        if (error) throw error;
+        if (data) setUsers(prev => [...prev, data[0] as User]);
+      }
+      
+      setShowModal(false);
+      setEditingUser(null);
+      setFormData({ 
+        name: '', 
+        mobile: '', 
+        address: '', 
+        username: '', 
+        password: '', 
+        role: UserRole.OPERATION_EXECUTIVE 
+      });
+      alert(editingUser ? 'Staff record updated.' : 'New staff account active in cloud.');
+    } catch (err: any) {
+      alert(`Database Error: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
     }
-    setShowModal(false);
-    setEditingUser(null);
-    setFormData({ 
-      name: '', 
-      mobile: '', 
-      address: '', 
-      username: '', 
-      password: '', 
-      role: UserRole.OPERATION_EXECUTIVE 
-    });
   };
 
   const handleEdit = (user: User) => {
@@ -71,9 +104,15 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, curren
     setShowModal(true);
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this staff member?')) {
-      setUsers(prev => prev.filter(u => u.id !== id));
+  const handleDelete = async (id: string) => {
+    if (confirm('Are you sure you want to delete this staff member? This will revoke their cloud access immediately.')) {
+      try {
+        const { error } = await supabase.from('users').delete().eq('id', id);
+        if (error) throw error;
+        setUsers(prev => prev.filter(u => u.id !== id));
+      } catch (err: any) {
+        alert(`Delete Error: ${err.message}`);
+      }
     }
   };
 
@@ -181,8 +220,8 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, curren
               </div>
               <div className="flex gap-4 mt-8">
                 <button type="button" onClick={() => setShowModal(false)} className="flex-1 bg-gray-900 hover:bg-gray-800 py-3 rounded-xl font-bold transition-colors">Cancel</button>
-                <button type="submit" className="flex-1 bg-purple-600 hover:bg-purple-700 py-3 rounded-xl font-bold transition-all shadow-lg shadow-purple-900/40">
-                  {editingUser ? 'Save Changes' : 'Create Account'}
+                <button disabled={isSubmitting} type="submit" className="flex-1 bg-purple-600 hover:bg-purple-700 py-3 rounded-xl font-bold transition-all shadow-lg shadow-purple-900/40 disabled:opacity-50">
+                  {isSubmitting ? 'Syncing...' : (editingUser ? 'Save Changes' : 'Create Account')}
                 </button>
               </div>
             </form>

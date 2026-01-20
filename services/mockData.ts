@@ -6,7 +6,7 @@ export const mockUsers: User[] = [
   { id: '2', username: 'ops1', password: 'password', role: UserRole.OPS_MANAGER, name: 'Suresh Kumar', mobile: '+91 88888 88888' },
   { id: '3', username: 'fin1', password: 'password', role: UserRole.FINANCE, name: 'Megha Singh', mobile: '+91 77777 77777' },
   { id: '4', username: 'Rajesh Driver', password: 'password', role: UserRole.DRIVER, name: 'Rajesh Khanna', mobile: '+91 66666 66666' },
-  { id: '5', username: 'Mahendar', password: 'Mahendar', role: UserRole.OPS_MANAGER, name: 'Mahendar', mobile: '+91 55555 55555' },
+  { id: '5', username: 'Rajesh Driver', password: 'password', role: UserRole.DRIVER, name: 'Rajesh Khanna', mobile: '+91 66666 66666' },
 ];
 
 export const mockDrivers: Driver[] = [

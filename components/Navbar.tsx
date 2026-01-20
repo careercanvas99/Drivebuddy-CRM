@@ -7,7 +7,7 @@ interface NavbarProps {
   user: User;
   notifications: Notification[];
   setNotifications: React.Dispatch<React.SetStateAction<Notification[]>>;
-  syncStatus?: 'synced' | 'pending' | 'error' | 'offline';
+  syncStatus?: 'synced' | 'pending' | 'error' | 'offline' | 'setup_required';
   dbProvider?: 'none' | 'github' | 'supabase';
 }
 
@@ -28,14 +28,18 @@ const Navbar: React.FC<NavbarProps> = ({ user, notifications, setNotifications, 
     switch (syncStatus) {
       case 'synced': return dbProvider === 'supabase' ? 'bg-emerald-500' : 'bg-green-500';
       case 'pending': return 'bg-yellow-500 animate-pulse';
+      case 'setup_required': return 'bg-orange-500 animate-bounce';
       case 'error': return 'bg-red-500';
+      case 'offline': return 'bg-gray-600';
       default: return 'bg-gray-700';
     }
   };
 
   const getStatusText = () => {
+    if (syncStatus === 'setup_required') return 'Database Table Missing';
     if (syncStatus === 'pending') return 'Syncing...';
     if (syncStatus === 'error') return 'Sync Error';
+    if (syncStatus === 'offline') return 'Local / Offline Mode';
     if (dbProvider === 'supabase') return 'Cloud SQL Online';
     if (dbProvider === 'github') return 'GitHub Active';
     return 'Local Storage';
@@ -46,9 +50,9 @@ const Navbar: React.FC<NavbarProps> = ({ user, notifications, setNotifications, 
       <div className="flex items-center gap-4">
         <h2 className="text-lg font-semibold text-white hidden md:block">Drivebuddy Operations</h2>
         
-        <div className="flex items-center gap-2 bg-black/40 border border-gray-800 px-3 py-1.5 rounded-full">
+        <div className={`flex items-center gap-2 bg-black/40 border px-3 py-1.5 rounded-full transition-colors ${syncStatus === 'setup_required' ? 'border-orange-500/50' : 'border-gray-800'}`}>
            <div className={`w-1.5 h-1.5 rounded-full ${getSyncColor()}`}></div>
-           <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">
+           <span className={`text-[9px] font-black uppercase tracking-widest ${syncStatus === 'setup_required' ? 'text-orange-400' : 'text-gray-500'}`}>
              {getStatusText()}
            </span>
         </div>
