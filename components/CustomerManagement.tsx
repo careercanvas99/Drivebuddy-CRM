@@ -14,6 +14,7 @@ interface CustomerManagementProps {
 const CustomerManagement: React.FC<CustomerManagementProps> = ({ customers, setCustomers, trips, user }) => {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [newCustomer, setNewCustomer] = useState<Partial<Customer>>({
     name: '',
     mobile: '',
@@ -26,74 +27,78 @@ const CustomerManagement: React.FC<CustomerManagementProps> = ({ customers, setC
 
   const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
-    const id = `CUST-${Math.floor(100 + Math.random() * 900)}`;
-    const customerData = { ...newCustomer, id } as Customer;
-
-    // First update local state so UI is responsive
-    setCustomers(prev => [...prev, customerData]);
-    setShowAddModal(false);
+    setIsSubmitting(true);
     
-    // Attempt relational sync (optional but preferred)
     try {
-      const { error } = await supabase
+      // DATABASE ENFORCED: Supabase handles UUID generation. 
+      // Manual 'CUST-xxx' generation removed to prevent foreign key errors.
+      const { data, error } = await supabase
         .from('customers')
-        .insert([customerData]);
+        .insert([{
+          name: newCustomer.name,
+          mobile: newCustomer.mobile,
+          home_address: newCustomer.homeAddress,
+          office_address: newCustomer.officeAddress,
+          vehicle_model: newCustomer.vehicleModel
+        }])
+        .select();
 
-      if (error) {
-        console.warn('Relational Sync Info:', error.message);
-        // We don't block here because the global state sync in App.tsx handles the primary persistence
-      } else {
-        alert('Customer registered and synced to relational table.');
+      if (error) throw error;
+
+      if (data) {
+        const addedCust: Customer = {
+          id: data[0].id,
+          name: data[0].name,
+          mobile: data[0].mobile,
+          homeAddress: data[0].home_address || '',
+          officeAddress: data[0].office_address || '',
+          vehicleModel: data[0].vehicle_model || 'Standard'
+        };
+        setCustomers(prev => [...prev, addedCust]);
+        alert('Client onboarding successful.');
       }
+      setShowAddModal(false);
+      setNewCustomer({ name: '', mobile: '', homeAddress: '', officeAddress: '', vehicleModel: '' });
     } catch (err: any) {
-      console.warn('Relational Sync skipped:', err.message);
+      alert(`Onboarding Failure: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setNewCustomer({
-      name: '',
-      mobile: '',
-      homeAddress: '',
-      officeAddress: '',
-      vehicleModel: ''
-    });
   };
 
   const handleUpdateCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedCustomer && isAdmin) {
-      const originalCustomers = [...customers];
-      setCustomers(prev => prev.map(c => c.id === selectedCustomer.id ? selectedCustomer : c));
-      
       try {
         const { error } = await supabase
           .from('customers')
-          .update(selectedCustomer)
+          .update({
+            name: selectedCustomer.name,
+            mobile: selectedCustomer.mobile,
+            home_address: selectedCustomer.homeAddress,
+            office_address: selectedCustomer.officeAddress,
+            vehicle_model: selectedCustomer.vehicleModel
+          })
           .eq('id', selectedCustomer.id);
 
         if (error) throw error;
-        alert('Profile updated across infrastructure.');
+        setCustomers(prev => prev.map(c => c.id === selectedCustomer.id ? selectedCustomer : c));
+        alert('Profile updated.');
       } catch (err: any) {
-        console.warn('Relational update skipped. Using global state sync.', err.message);
+        alert(`Update Error: ${err.message}`);
       }
       setSelectedCustomer(null);
     }
   };
 
   const handleDeleteCustomer = async (id: string) => {
-    if (confirm('DANGER: This will delete the customer and potentially orphan their history. Proceed?')) {
-      const originalCustomers = [...customers];
-      setCustomers(prev => prev.filter(c => c.id !== id));
-      
+    if (confirm('DANGER: Permanent deletion of client record? Existing trips for this customer will persist but display as Guest.')) {
       try {
-        const { error } = await supabase
-          .from('customers')
-          .delete()
-          .eq('id', id);
-
+        const { error } = await supabase.from('customers').delete().eq('id', id);
         if (error) throw error;
-        alert('Customer deleted from registry.');
+        setCustomers(prev => prev.filter(c => c.id !== id));
       } catch (err: any) {
-        console.warn('Relational delete skipped. Using global state sync.', err.message);
+        alert(`Delete Error: ${err.message}`);
       }
     }
   };
@@ -102,69 +107,69 @@ const CustomerManagement: React.FC<CustomerManagementProps> = ({ customers, setC
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold">Client Registry</h2>
-          <p className="text-gray-400 text-sm">Onboard and manage customer profiles</p>
+          <h2 className="text-2xl font-black text-white">Client Registry</h2>
+          <p className="text-gray-400 text-sm">Centralized customer profile management</p>
         </div>
         {isAdmin && (
           <button 
             onClick={() => setShowAddModal(true)}
-            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-lg shadow-purple-900/40"
+            className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-2xl flex items-center gap-2 font-black text-xs uppercase tracking-widest transition-all shadow-xl shadow-purple-900/40"
           >
-            {ICONS.Plus} Register Customer
+            {ICONS.Plus} Register Client
           </button>
         )}
       </div>
 
-      <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden">
+      <div className="bg-gray-950 rounded-[2.5rem] border border-gray-900 overflow-hidden shadow-2xl">
         <table className="w-full text-left text-sm">
-          <thead className="bg-gray-950 text-gray-400 border-b border-gray-800">
+          <thead className="bg-black text-gray-600 border-b border-gray-900 font-black uppercase text-[9px] tracking-widest">
             <tr>
-              <th className="p-4 font-medium uppercase tracking-wider text-xs">Customer Name</th>
-              <th className="p-4 font-medium uppercase tracking-wider text-xs">Contact Information</th>
-              <th className="p-4 font-medium uppercase tracking-wider text-xs">Registered Vehicle</th>
-              <th className="p-4 font-medium uppercase tracking-wider text-xs">Activity</th>
-              <th className="p-4 font-medium uppercase tracking-wider text-xs text-right">Actions</th>
+              <th className="p-6">Client Name</th>
+              <th className="p-6">Secure Contact</th>
+              <th className="p-6">Primary Asset</th>
+              <th className="p-6">Activity Index</th>
+              <th className="p-6 text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-800">
+          <tbody className="divide-y divide-gray-900">
             {customers.map(c => (
-              <tr key={c.id} className="hover:bg-gray-800/50 transition-colors">
-                <td className="p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center text-xs font-bold text-purple-500">
+              <tr key={c.id} className="hover:bg-gray-900/40 transition-colors group">
+                <td className="p-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-gray-900 flex items-center justify-center text-sm font-black text-purple-500 border border-gray-800">
                       {c.name.charAt(0)}
                     </div>
-                    <span className="font-bold">{c.name}</span>
+                    <span className="font-bold text-white">{c.name}</span>
                   </div>
                 </td>
-                <td className="p-4 text-purple-400 font-mono text-xs">{c.mobile}</td>
-                <td className="p-4 text-xs text-gray-400">{c.vehicleModel}</td>
-                <td className="p-4">
-                  <span className="px-2 py-1 bg-gray-950 rounded border border-gray-800 text-[10px] font-bold">
+                <td className="p-6 text-purple-400 font-mono text-xs">{c.mobile}</td>
+                <td className="p-6 text-xs text-gray-400 font-medium">{c.vehicleModel}</td>
+                <td className="p-6">
+                  <span className="px-3 py-1 bg-black rounded-lg border border-gray-800 text-[9px] font-black text-gray-500">
                     {trips.filter(t => t.customerId === c.id).length} TRIPS
                   </span>
                 </td>
-                <td className="p-4 text-right">
-                  <div className="flex justify-end gap-3">
+                <td className="p-6 text-right">
+                  <div className="flex justify-end gap-3 opacity-40 group-hover:opacity-100 transition-opacity">
                     {isAdmin ? (
                       <>
                         <button 
                           onClick={() => setSelectedCustomer(c)} 
-                          className="text-purple-500 hover:text-purple-400"
+                          className="p-2 bg-gray-900 rounded-xl text-blue-500 hover:text-white transition-all"
                           title="Edit Profile"
                         >
                           {ICONS.Edit}
                         </button>
                         <button 
                           onClick={() => handleDeleteCustomer(c.id)} 
-                          className="text-red-500 hover:text-red-400"
+                          className="p-2 bg-gray-900 rounded-xl text-red-500 hover:text-white transition-all"
                           title="Delete Client"
                         >
                           {ICONS.Delete}
                         </button>
                       </>
                     ) : (
-                      <span className="text-[10px] text-gray-600 italic">View Only</span>
+                      <span className="text-[10px] text-gray-700 italic font-black uppercase tracking-tighter">Read Only</span>
                     )}
                   </div>
                 </td>
@@ -174,62 +179,54 @@ const CustomerManagement: React.FC<CustomerManagementProps> = ({ customers, setC
         </table>
       </div>
 
-      {/* Edit Customer Modal */}
-      {selectedCustomer && isAdmin && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-          <div className="bg-gray-950 border border-gray-800 rounded-3xl w-full max-w-lg p-8 animate-in fade-in zoom-in duration-200">
-            <h3 className="text-xl font-bold mb-6 text-purple-500">Modify Profile: {selectedCustomer.name}</h3>
-            <form onSubmit={handleUpdateCustomer} className="space-y-4">
-              <div>
-                <label className="text-xs text-gray-500 uppercase block mb-1">Full Name</label>
-                <input required className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm focus:border-purple-500 outline-none" value={selectedCustomer.name} onChange={e => setSelectedCustomer({...selectedCustomer, name: e.target.value})} />
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-md flex items-center justify-center z-[110] p-4">
+          <div className="bg-gray-950 border border-gray-800 rounded-[3rem] w-full max-w-lg p-10 animate-in zoom-in duration-200 shadow-2xl">
+            <h3 className="text-3xl font-black mb-10 text-purple-500 uppercase tracking-tighter">Client Onboarding</h3>
+            <form onSubmit={handleAddCustomer} className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">Full Name</label>
+                <input required className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none text-white shadow-inner" placeholder="e.g. Rahul Sharma" value={newCustomer.name} onChange={e => setNewCustomer({...newCustomer, name: e.target.value})} />
               </div>
-              <div>
-                <label className="text-xs text-gray-500 uppercase block mb-1">Mobile Access</label>
-                <input required className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm focus:border-purple-500 outline-none" value={selectedCustomer.mobile} onChange={e => setSelectedCustomer({...selectedCustomer, mobile: e.target.value})} />
+              <div className="space-y-2">
+                <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">Mobile Number</label>
+                <input required className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none text-white font-mono shadow-inner" placeholder="+91 XXXXX XXXXX" value={newCustomer.mobile} onChange={e => setNewCustomer({...newCustomer, mobile: e.target.value})} />
               </div>
-              <div>
-                <label className="text-xs text-gray-500 uppercase block mb-1">Primary Vehicle</label>
-                <input required className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm focus:border-purple-500 outline-none" value={selectedCustomer.vehicleModel} onChange={e => setSelectedCustomer({...selectedCustomer, vehicleModel: e.target.value})} />
+              <div className="space-y-2">
+                <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">Primary Vehicle</label>
+                <input required className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none text-white shadow-inner" placeholder="e.g. Audi A4 (White)" value={newCustomer.vehicleModel} onChange={e => setNewCustomer({...newCustomer, vehicleModel: e.target.value})} />
               </div>
-              <div>
-                <label className="text-xs text-gray-500 uppercase block mb-1">Home Residence</label>
-                <textarea className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm h-20 focus:border-purple-500 outline-none" value={selectedCustomer.homeAddress} onChange={e => setSelectedCustomer({...selectedCustomer, homeAddress: e.target.value})} />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 uppercase block mb-1">Corporate Address</label>
-                <textarea className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm h-20 focus:border-purple-500 outline-none" value={selectedCustomer.officeAddress} onChange={e => setSelectedCustomer({...selectedCustomer, officeAddress: e.target.value})} />
-              </div>
-              <div className="grid grid-cols-2 gap-4 mt-6">
-                <button type="button" onClick={() => setSelectedCustomer(null)} className="bg-gray-900 py-3 rounded-xl font-bold">Discard</button>
-                <button type="submit" className="bg-purple-600 hover:bg-purple-700 py-3 rounded-xl font-bold shadow-lg shadow-purple-900/40">Apply Changes</button>
+              <div className="flex gap-4 pt-6">
+                <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 bg-gray-900 py-5 rounded-[2rem] font-black uppercase text-[10px] tracking-widest text-gray-400">Cancel</button>
+                <button disabled={isSubmitting} type="submit" className="flex-1 bg-purple-600 hover:bg-purple-700 py-5 rounded-[2rem] font-black uppercase text-[10px] tracking-widest text-white shadow-xl shadow-purple-900/40">
+                  {isSubmitting ? 'Syncing...' : 'Register Account'}
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* Add Customer Modal */}
-      {showAddModal && isAdmin && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-          <div className="bg-gray-950 border border-gray-800 rounded-3xl w-full max-w-lg p-8 animate-in fade-in zoom-in duration-200">
-            <h3 className="text-xl font-bold mb-6 text-purple-500">Onboard New Client</h3>
-            <form onSubmit={handleAddCustomer} className="space-y-4">
-              <div>
-                <label className="text-xs text-gray-500 uppercase block mb-1">Customer Full Name</label>
-                <input required className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm focus:border-purple-500 outline-none" placeholder="e.g. Rahul Sharma" value={newCustomer.name} onChange={e => setNewCustomer({...newCustomer, name: e.target.value})} />
+      {selectedCustomer && (
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-md flex items-center justify-center z-[110] p-4">
+          <div className="bg-gray-950 border border-gray-800 rounded-[3rem] w-full max-w-lg p-10 animate-in zoom-in duration-200 shadow-2xl">
+            <h3 className="text-3xl font-black mb-10 text-purple-500 uppercase tracking-tighter">Modify Profile</h3>
+            <form onSubmit={handleUpdateCustomer} className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">Full Name</label>
+                <input required className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none text-white" value={selectedCustomer.name} onChange={e => setSelectedCustomer({...selectedCustomer, name: e.target.value})} />
               </div>
-              <div>
-                <label className="text-xs text-gray-500 uppercase block mb-1">Mobile (Linked to App)</label>
-                <input required className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm focus:border-purple-500 outline-none" placeholder="+91 XXXXX XXXXX" value={newCustomer.mobile} onChange={e => setNewCustomer({...newCustomer, mobile: e.target.value})} />
+              <div className="space-y-2">
+                <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">Secure Contact</label>
+                <input required className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none text-white" value={selectedCustomer.mobile} onChange={e => setSelectedCustomer({...selectedCustomer, mobile: e.target.value})} />
               </div>
-              <div>
-                <label className="text-xs text-gray-500 uppercase block mb-1">Vehicle Details</label>
-                <input required className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm focus:border-purple-500 outline-none" placeholder="e.g. Audi A4 (White)" value={newCustomer.vehicleModel} onChange={e => setNewCustomer({...newCustomer, vehicleModel: e.target.value})} />
+              <div className="space-y-2">
+                <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">Home Address</label>
+                <textarea className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm h-24 focus:border-purple-500 outline-none text-white" value={selectedCustomer.homeAddress} onChange={e => setSelectedCustomer({...selectedCustomer, homeAddress: e.target.value})} />
               </div>
-              <div className="grid grid-cols-2 gap-4 mt-6">
-                <button type="button" onClick={() => setShowAddModal(false)} className="bg-gray-900 py-3 rounded-xl font-bold">Cancel</button>
-                <button type="submit" className="bg-purple-600 hover:bg-purple-700 py-3 rounded-xl font-bold shadow-lg shadow-purple-900/40">Register Account</button>
+              <div className="flex gap-4 pt-6">
+                <button type="button" onClick={() => setSelectedCustomer(null)} className="flex-1 bg-gray-900 py-5 rounded-[2rem] font-black uppercase text-[10px] tracking-widest text-gray-400">Discard</button>
+                <button type="submit" className="flex-1 bg-purple-600 hover:bg-purple-700 py-5 rounded-[2rem] font-black uppercase text-[10px] tracking-widest text-white shadow-xl">Apply Changes</button>
               </div>
             </form>
           </div>

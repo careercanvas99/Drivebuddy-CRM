@@ -14,33 +14,17 @@ export type TripStatus = 'unassigned' | 'assigned' | 'started' | 'completed' | '
 export type PaymentStatus = 'pending' | 'collected' | 'settled';
 export type PaymentMode = 'cash' | 'online' | 'unpaid';
 
-export interface GitHubConfig {
-  repository: string; // owner/repo
-  branch: string;
-  filePath: string;
-  token: string;
-  lastSync?: string;
-}
-
-export interface SupabaseConfig {
-  url: string;
-  anonKey: string;
-  tableName: string;
-  lastSync?: string;
-}
-
 export interface CompanySettings {
   name: string;
   address: string;
   mobile: string;
   logo?: string;
-  githubConfig?: GitHubConfig;
-  supabaseConfig?: SupabaseConfig;
   dbProvider: 'none' | 'github' | 'supabase';
 }
 
 export interface User {
-  id: string;
+  id: string; // Internal UUID
+  displayId: string; // Business ID like DBDY-HYD-001
   username: string;
   password?: string;
   role: UserRole;
@@ -50,7 +34,8 @@ export interface User {
 }
 
 export interface Driver {
-  id: string;
+  id: string; // Internal UUID
+  displayId: string; // Business ID like DBDY-HYD-DR-001
   name: string;
   licenseNumber: string;
   issueDate: string;
@@ -58,7 +43,6 @@ export interface Driver {
   address: string;
   permanentAddress: string;
   profilePhoto?: string;
-  qrCode?: string;
   status: 'available' | 'busy' | 'inactive';
   location: [number, number];
 }
@@ -72,16 +56,9 @@ export interface Customer {
   vehicleModel: string;
 }
 
-export interface Lead {
-  id?: number;
-  customer_id: string;
-  status: string;
-  notes: string;
-  created_at?: string;
-}
-
 export interface Trip {
-  id: string;
+  id: string; // Internal UUID
+  displayId: string; // Business ID like TRIP-4501
   customerId: string;
   driverId?: string;
   pickupLocation: string;
@@ -92,11 +69,10 @@ export interface Trip {
   status: TripStatus;
   cancelReason?: string;
   billAmount?: number;
+  // Added missing properties to satisfy DriverDashboard usage
   startSelfie?: string;
   endSelfie?: string;
   paymentStatus?: PaymentStatus;
-  paymentMode?: PaymentMode;
-  baseFare?: number;
 }
 
 export interface Notification {

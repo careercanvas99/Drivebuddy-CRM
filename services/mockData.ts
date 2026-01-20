@@ -2,16 +2,17 @@
 import { User, UserRole, Driver, Customer, Trip } from '../types.ts';
 
 export const mockUsers: User[] = [
-  { id: '1', username: 'admin', password: 'password', role: UserRole.ADMIN, name: 'Main Admin', mobile: '+91 99999 99999', address: 'Drivebuddy HQ, Bangalore' },
-  { id: '2', username: 'ops1', password: 'password', role: UserRole.OPS_MANAGER, name: 'Suresh Kumar', mobile: '+91 88888 88888' },
-  { id: '3', username: 'fin1', password: 'password', role: UserRole.FINANCE, name: 'Megha Singh', mobile: '+91 77777 77777' },
-  { id: '4', username: 'Rajesh Driver', password: 'password', role: UserRole.DRIVER, name: 'Rajesh Khanna', mobile: '+91 66666 66666' },
-  { id: '5', username: 'Rajesh Driver', password: 'password', role: UserRole.DRIVER, name: 'Rajesh Khanna', mobile: '+91 66666 66666' },
+  { id: '1', displayId: 'DBDY-HYD-001', username: 'admin', password: 'password', role: UserRole.ADMIN, name: 'Main Admin', mobile: '+91 99999 99999', address: 'Drivebuddy HQ, Bangalore' },
+  { id: '2', displayId: 'DBDY-HYD-002', username: 'ops1', password: 'password', role: UserRole.OPS_MANAGER, name: 'Suresh Kumar', mobile: '+91 88888 88888' },
+  { id: '3', displayId: 'DBDY-HYD-003', username: 'fin1', password: 'password', role: UserRole.FINANCE, name: 'Megha Singh', mobile: '+91 77777 77777' },
+  { id: '4', displayId: 'DBDY-HYD-DR-004', username: 'Rajesh Driver', password: 'password', role: UserRole.DRIVER, name: 'Rajesh Khanna', mobile: '+91 66666 66666' },
+  { id: '5', displayId: 'DBDY-HYD-DR-005', username: 'Rajesh Driver 2', password: 'password', role: UserRole.DRIVER, name: 'Rajesh Khanna', mobile: '+91 66666 66666' },
 ];
 
 export const mockDrivers: Driver[] = [
   {
     id: 'DRV-101',
+    displayId: 'DBDY-HYD-DR-101',
     name: 'Rajesh Khanna',
     licenseNumber: 'DL-1420210012345',
     issueDate: '2021-01-15',
@@ -23,6 +24,7 @@ export const mockDrivers: Driver[] = [
   },
   {
     id: 'DRV-102',
+    displayId: 'DBDY-HYD-DR-102',
     name: 'Vikram Singh',
     licenseNumber: 'KA-0120220098765',
     issueDate: '2022-03-20',
@@ -34,6 +36,7 @@ export const mockDrivers: Driver[] = [
   },
   {
     id: 'DRV-103',
+    displayId: 'DBDY-HYD-DR-103',
     name: 'Amit Patel',
     licenseNumber: 'GJ-0520230044556',
     issueDate: '2023-05-10',
@@ -67,6 +70,7 @@ export const mockCustomers: Customer[] = [
 export const mockTrips: Trip[] = [
   {
     id: 'TRIP-4501',
+    displayId: 'TRIP-4501',
     customerId: 'CUST-001',
     driverId: 'DRV-101',
     pickupLocation: 'Whitefield',
@@ -79,6 +83,7 @@ export const mockTrips: Trip[] = [
   },
   {
     id: 'TRIP-4502',
+    displayId: 'TRIP-4502',
     customerId: 'CUST-002',
     pickupLocation: 'Indiranagar',
     dropLocation: 'Mysore Road',

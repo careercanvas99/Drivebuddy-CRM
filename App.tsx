@@ -39,15 +39,10 @@ const App: React.FC = () => {
   const fetchData = useCallback(async () => {
     setSyncStatus('pending');
     try {
-      // 1. Connectivity & Schema Check
-      // We check for 'users' table specifically. 
-      // PGRST205 = Schema cache not found (PostgREST error)
-      // 42P01 = Table does not exist (PostgreSQL error)
-      const { data: pingData, error: pingError } = await supabase.from('users').select('id').limit(1);
+      const { error: pingError } = await supabase.from('users').select('id').limit(1);
       
       if (pingError) {
-        if (pingError.code === '42P01' || pingError.code === 'PGRST205') {
-          console.warn("Database tables missing or cache not refreshed. Redirecting to setup.");
+        if (pingError.code === '42P01' || pingError.code === 'PGRST205' || pingError.message.includes('column "staff_code" does not exist')) {
           setSetupRequired(true);
           setSyncStatus('setup_required');
           setIsLoading(false);
@@ -56,7 +51,6 @@ const App: React.FC = () => {
         throw pingError;
       }
 
-      // 2. Parallel Fetch
       const [
         { data: usersData },
         { data: driversData },
@@ -69,18 +63,61 @@ const App: React.FC = () => {
         supabase.from('trips').select('*').order('created_at', { ascending: false })
       ]);
 
-      // 3. Handle Empty User Table (Initial State)
-      if (usersData && usersData.length === 0) {
-        setSetupRequired(true);
-        setSyncStatus('setup_required');
-        setIsLoading(false);
-        return;
+      if (usersData) {
+        setUsers(usersData.map((u: any) => ({
+          id: u.id,
+          displayId: u.staff_code || u.id.slice(0, 8), 
+          username: u.username,
+          password: u.password,
+          role: u.role,
+          name: u.name,
+          mobile: u.mobile,
+          address: u.address
+        })));
       }
 
-      if (usersData) setUsers(usersData as User[]);
-      if (driversData) setDrivers(driversData as Driver[]);
-      if (customersData) setCustomers(customersData as Customer[]);
-      if (tripsData) setTrips(tripsData as Trip[]);
+      if (driversData) {
+        setDrivers(driversData.map((d: any) => ({
+          id: d.id,
+          displayId: d.driver_code || d.id.slice(0, 8),
+          name: d.name,
+          licenseNumber: d.license_number,
+          issueDate: d.issue_date,
+          expiryDate: d.expiry_date,
+          address: d.address || '',
+          permanentAddress: d.permanent_address || '',
+          status: d.status || 'available',
+          location: [d.location_lat || 12.9716, d.location_lng || 77.5946]
+        })));
+      }
+
+      if (customersData) {
+        setCustomers(customersData.map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          mobile: c.mobile,
+          homeAddress: c.home_address || '',
+          officeAddress: c.office_address || '',
+          vehicleModel: c.vehicle_model || 'Standard'
+        })));
+      }
+
+      if (tripsData) {
+        setTrips(tripsData.map((t: any) => ({
+          id: t.id,
+          displayId: t.trip_code || 'TRIP-4501 (Syncing)',
+          customerId: t.customer_id,
+          driverId: t.driver_id,
+          pickupLocation: t.pickup_location,
+          dropLocation: t.drop_location,
+          tripType: t.trip_type,
+          startDateTime: t.start_date_time,
+          endDateTime: t.end_date_time,
+          status: t.status,
+          cancelReason: t.cancel_reason,
+          billAmount: t.bill_amount
+        })));
+      }
 
       setSyncStatus('synced');
       setIsCloudReachable(true);

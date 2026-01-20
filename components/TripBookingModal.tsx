@@ -30,7 +30,6 @@ const TripBookingModal: React.FC<TripBookingModalProps> = ({ isOpen, onClose, cu
     setIsSubmitting(true);
 
     try {
-      // 1. Resolve Customer Identity
       let customerId: string;
       const existing = customers.find(c => c.mobile === formData.mobileNumber);
       
@@ -52,7 +51,8 @@ const TripBookingModal: React.FC<TripBookingModalProps> = ({ isOpen, onClose, cu
         setCustomers(prev => [...prev, newCust as Customer]);
       }
 
-      // 2. Register Journey
+      // NO CLIENT-SIDE ID GENERATION.
+      // Supabase trigger fn_generate_trip_code handles the business ID.
       const { data: tripData, error: tripError } = await supabase
         .from('trips')
         .insert({
@@ -69,13 +69,24 @@ const TripBookingModal: React.FC<TripBookingModalProps> = ({ isOpen, onClose, cu
       if (tripError) throw tripError;
 
       if (tripData) {
-        setTrips(prev => [tripData[0] as Trip, ...prev]);
+        const mappedTrip: Trip = {
+            id: tripData[0].id,
+            displayId: tripData[0].trip_code, // Reading SQL generated code
+            customerId: tripData[0].customer_id,
+            pickupLocation: tripData[0].pickup_location,
+            dropLocation: tripData[0].drop_location,
+            tripType: tripData[0].trip_type,
+            startDateTime: tripData[0].start_date_time,
+            endDateTime: tripData[0].end_date_time,
+            status: tripData[0].status
+        };
+        setTrips(prev => [mappedTrip, ...prev]);
+        alert(`Trip Registered: Business ID ${tripData[0].trip_code}`);
       }
 
-      alert('Trip Registered: Data synchronized with cloud database.');
       onClose();
     } catch (err: any) {
-      alert(`Supabase Error: ${err.message}`);
+      alert(`Dispatch Error: ${err.message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -109,22 +120,22 @@ const TripBookingModal: React.FC<TripBookingModalProps> = ({ isOpen, onClose, cu
           <div className="grid grid-cols-2 gap-6">
             <div className="space-y-2">
               <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">Start Date</label>
-              <input required type="date" className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none shadow-inner" value={formData.startDate} onChange={e => setFormData({...formData, startDate: e.target.value})} />
+              <input required type="date" className="w-full bg-gray-950 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none shadow-inner" value={formData.startDate} onChange={e => setFormData({...formData, startDate: e.target.value})} />
             </div>
             <div className="space-y-2">
               <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">Start Time</label>
-              <input required type="time" className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none shadow-inner" value={formData.startTime} onChange={e => setFormData({...formData, startTime: e.target.value})} />
+              <input required type="time" className="w-full bg-gray-950 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none shadow-inner" value={formData.startTime} onChange={e => setFormData({...formData, startTime: e.target.value})} />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-6">
             <div className="space-y-2">
               <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">End Date</label>
-              <input required type="date" className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none shadow-inner" value={formData.endDate} onChange={e => setFormData({...formData, endDate: e.target.value})} />
+              <input required type="date" className="w-full bg-gray-950 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none shadow-inner" value={formData.endDate} onChange={e => setFormData({...formData, endDate: e.target.value})} />
             </div>
             <div className="space-y-2">
               <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">End Time</label>
-              <input required type="time" className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none shadow-inner" value={formData.endTime} onChange={e => setFormData({...formData, endTime: e.target.value})} />
+              <input required type="time" className="w-full bg-gray-950 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none shadow-inner" value={formData.endTime} onChange={e => setFormData({...formData, endTime: e.target.value})} />
             </div>
           </div>
 
@@ -139,12 +150,12 @@ const TripBookingModal: React.FC<TripBookingModalProps> = ({ isOpen, onClose, cu
           <div className="space-y-6">
             <div className="space-y-2">
               <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">Pickup Location</label>
-              <input required className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm outline-none text-white shadow-inner" placeholder="Detailed Address" value={formData.pickupLocation} onChange={e => setFormData({...formData, pickupLocation: e.target.value})} />
+              <input required className="w-full bg-gray-950 border border-gray-800 rounded-2xl p-4 text-sm outline-none text-white shadow-inner" placeholder="Detailed Address" value={formData.pickupLocation} onChange={e => setFormData({...formData, pickupLocation: e.target.value})} />
             </div>
             {formData.tripType === 'one-way' && (
               <div className="space-y-2 animate-in slide-in-from-top duration-300">
                 <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">Drop Location</label>
-                <input required className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm outline-none text-white shadow-inner" placeholder="Destination Address" value={formData.dropLocation} onChange={e => setFormData({...formData, dropLocation: e.target.value})} />
+                <input required className="w-full bg-gray-950 border border-gray-800 rounded-2xl p-4 text-sm outline-none text-white shadow-inner" placeholder="Destination Address" value={formData.dropLocation} onChange={e => setFormData({...formData, dropLocation: e.target.value})} />
               </div>
             )}
           </div>

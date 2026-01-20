@@ -57,6 +57,8 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, curren
         if (error) throw error;
         setUsers(prev => prev.map(u => u.id === editingUser.id ? { ...u, ...formData } : u));
       } else {
+        // NO CLIENT-SIDE ID GENERATION.
+        // Database trigger fn_generate_staff_code handles the business ID.
         const { data, error } = await supabase
           .from('users')
           .insert([{
@@ -70,7 +72,20 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, curren
           .select();
         
         if (error) throw error;
-        if (data) setUsers(prev => [...prev, data[0] as User]);
+        if (data) {
+             const newUser: User = {
+                 id: data[0].id,
+                 displayId: data[0].staff_code, // Reading SQL generated code
+                 username: data[0].username,
+                 password: data[0].password,
+                 role: data[0].role as UserRole,
+                 name: data[0].name,
+                 mobile: data[0].mobile,
+                 address: data[0].address
+             };
+             setUsers(prev => [...prev, newUser]);
+             alert(`Staff Account Registered: ${data[0].staff_code}`);
+        }
       }
       
       setShowModal(false);
@@ -83,9 +98,8 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, curren
         password: '', 
         role: UserRole.OPERATION_EXECUTIVE 
       });
-      alert(editingUser ? 'Staff record updated.' : 'New staff account active in cloud.');
     } catch (err: any) {
-      alert(`Database Error: ${err.message}`);
+      alert(`Staff Registry Error: ${err.message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -105,7 +119,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, curren
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this staff member? This will revoke their cloud access immediately.')) {
+    if (confirm('Are you sure you want to delete this staff member?')) {
       try {
         const { error } = await supabase.from('users').delete().eq('id', id);
         if (error) throw error;
@@ -135,7 +149,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, curren
         <table className="w-full text-left text-sm">
           <thead className="bg-gray-950 text-gray-400 border-b border-gray-800">
             <tr>
-              <th className="p-4 font-medium uppercase tracking-wider text-[10px]">Name / ID</th>
+              <th className="p-4 font-medium uppercase tracking-wider text-[10px]">Name / Business ID</th>
               <th className="p-4 font-medium uppercase tracking-wider text-[10px]">Contact</th>
               <th className="p-4 font-medium uppercase tracking-wider text-[10px]">Role</th>
               <th className="p-4 font-medium uppercase tracking-wider text-[10px]">Username</th>
@@ -147,7 +161,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, curren
               <tr key={u.id} className="hover:bg-gray-800/50 transition-colors">
                 <td className="p-4">
                   <div className="font-bold text-white">{u.name}</div>
-                  <div className="text-[10px] text-gray-500 font-mono tracking-tighter">{u.id}</div>
+                  <div className="text-[10px] text-purple-500 font-mono font-bold tracking-widest">{u.displayId}</div>
                 </td>
                 <td className="p-4">
                   <div className="text-sm text-gray-300">{u.mobile || 'N/A'}</div>
@@ -185,21 +199,21 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, curren
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">Full Name</label>
-                  <input required className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm focus:border-purple-500 outline-none" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="e.g. Rahul Verma" />
+                  <input required className="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-sm focus:border-purple-500 outline-none" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="e.g. Rahul Verma" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">Mobile Number</label>
-                  <input required className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm focus:border-purple-500 outline-none" value={formData.mobile} onChange={e => setFormData({...formData, mobile: e.target.value})} placeholder="+91 XXXXX XXXXX" />
+                  <input required className="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-sm focus:border-purple-500 outline-none" value={formData.mobile} onChange={e => setFormData({...formData, mobile: e.target.value})} placeholder="+91 XXXXX XXXXX" />
                 </div>
               </div>
               <div>
                 <label className="text-xs text-gray-500 block mb-1">Residence Address</label>
-                <textarea className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm h-16 focus:border-purple-500 outline-none" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} placeholder="Complete home/office address" />
+                <textarea className="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-sm h-16 focus:border-purple-500 outline-none" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} placeholder="Complete home/office address" />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">Role</label>
-                  <select className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm focus:border-purple-500 outline-none" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
+                  <select className="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-sm focus:border-purple-500 outline-none" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
                     <option value={UserRole.ADMIN}>Admin</option>
                     <option value={UserRole.OPS_MANAGER}>Ops-Manager</option>
                     <option value={UserRole.DRIVER_PARTNER_MANAGER}>Driver Partner Manager</option>
@@ -211,12 +225,12 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, curren
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">Login Username</label>
-                  <input required className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm focus:border-purple-500 outline-none" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} placeholder="username_staff" />
+                  <input required className="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-sm focus:border-purple-500 outline-none" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} placeholder="username_staff" />
                 </div>
               </div>
               <div>
                 <label className="text-xs text-gray-500 block mb-1">{editingUser ? 'Update Password' : 'Initial Password'}</label>
-                <input required className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm focus:border-purple-500 outline-none" type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} placeholder="••••••••" />
+                <input required className="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-sm focus:border-purple-500 outline-none" type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} placeholder="••••••••" />
               </div>
               <div className="flex gap-4 mt-8">
                 <button type="button" onClick={() => setShowModal(false)} className="flex-1 bg-gray-900 hover:bg-gray-800 py-3 rounded-xl font-bold transition-colors">Cancel</button>
