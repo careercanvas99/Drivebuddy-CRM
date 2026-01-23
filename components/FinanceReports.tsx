@@ -1,16 +1,24 @@
 
 import React from 'react';
-import { Trip, Driver } from '../types.ts';
+import { Trip, Driver, Customer, CompanySettings } from '../types.ts';
 import { ICONS } from '../constants.tsx';
+import { generatePDFInvoice } from '../services/InvoiceService.ts';
 
 interface FinanceReportsProps {
   trips: Trip[];
   drivers: Driver[];
+  customers: Customer[];
+  companySettings: CompanySettings;
 }
 
-const FinanceReports: React.FC<FinanceReportsProps> = ({ trips, drivers }) => {
+const FinanceReports: React.FC<FinanceReportsProps> = ({ trips, drivers, customers, companySettings }) => {
   const completedTrips = trips.filter(t => t.status === 'completed');
   const totalRevenue = completedTrips.reduce((acc, t) => acc + (t.billAmount || 0), 0);
+
+  const handleDownloadInvoice = (trip: Trip) => {
+    const cust = customers.find(c => c.id === trip.customerId);
+    generatePDFInvoice(trip, cust, companySettings);
+  };
 
   return (
     <div className="space-y-6">
@@ -40,18 +48,23 @@ const FinanceReports: React.FC<FinanceReportsProps> = ({ trips, drivers }) => {
                 <th className="p-4 font-medium">Trip ID</th>
                 <th className="p-4 font-medium">Driver</th>
                 <th className="p-4 font-medium">Amount</th>
-                <th className="p-4 font-medium text-right">Payment Status</th>
+                <th className="p-4 font-medium text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
               {completedTrips.map(trip => (
                 <tr key={trip.id} className="hover:bg-gray-800/50">
                   <td className="p-4">{new Date(trip.startDateTime).toLocaleDateString()}</td>
-                  <td className="p-4 font-mono text-xs text-purple-400">{trip.id}</td>
+                  <td className="p-4 font-mono text-xs text-purple-400">{trip.displayId}</td>
                   <td className="p-4">{drivers.find(d => d.id === trip.driverId)?.name}</td>
                   <td className="p-4 font-bold text-green-400">₹ {trip.billAmount?.toFixed(2)}</td>
                   <td className="p-4 text-right">
-                    <span className="px-2 py-1 bg-green-900/30 text-green-500 rounded text-[10px] font-bold uppercase">Success</span>
+                    <button 
+                      onClick={() => handleDownloadInvoice(trip)}
+                      className="text-[10px] bg-purple-600/20 text-purple-400 px-3 py-1 rounded hover:bg-purple-600 hover:text-white transition-all font-black uppercase tracking-widest"
+                    >
+                      Invoice
+                    </button>
                   </td>
                 </tr>
               ))}

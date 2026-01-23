@@ -15,6 +15,8 @@ import FinanceReports from './components/FinanceReports.tsx';
 import TripEstimation from './components/TripEstimation.tsx';
 import Settings from './components/Settings.tsx';
 import SetupWizard from './components/SetupWizard.tsx';
+import CustomerDashboard from './components/CustomerDashboard.tsx';
+import DriverDashboard from './components/DriverDashboard.tsx';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -39,10 +41,10 @@ const App: React.FC = () => {
   const fetchData = useCallback(async () => {
     setSyncStatus('pending');
     try {
-      const { error: pingError } = await supabase.from('users').select('id').limit(1);
+      const { error: pingError } = await supabase.from('customers').select('id').limit(1);
       
       if (pingError) {
-        if (pingError.code === '42P01' || pingError.code === 'PGRST205' || pingError.message.includes('column "staff_code" does not exist')) {
+        if (pingError.code === '42P01' || pingError.message.includes('column "customer_name" does not exist')) {
           setSetupRequired(true);
           setSyncStatus('setup_required');
           setIsLoading(false);
@@ -66,7 +68,7 @@ const App: React.FC = () => {
       if (usersData) {
         setUsers(usersData.map((u: any) => ({
           id: u.id,
-          displayId: u.staff_code || u.id.slice(0, 8), 
+          displayId: u.staff_code || 'DBDY-HYD-PENDING', 
           username: u.username,
           password: u.password,
           role: u.role,
@@ -79,7 +81,7 @@ const App: React.FC = () => {
       if (driversData) {
         setDrivers(driversData.map((d: any) => ({
           id: d.id,
-          displayId: d.driver_code || d.id.slice(0, 8),
+          displayId: d.driver_code || 'DBDY-HYD-DR-PENDING',
           name: d.name,
           licenseNumber: d.license_number,
           issueDate: d.issue_date,
@@ -94,8 +96,9 @@ const App: React.FC = () => {
       if (customersData) {
         setCustomers(customersData.map((c: any) => ({
           id: c.id,
-          name: c.name,
-          mobile: c.mobile,
+          displayId: c.customer_code || 'CUST-PENDING',
+          name: c.customer_name,
+          mobile: c.mobile_number,
           homeAddress: c.home_address || '',
           officeAddress: c.office_address || '',
           vehicleModel: c.vehicle_model || 'Standard'
@@ -105,18 +108,28 @@ const App: React.FC = () => {
       if (tripsData) {
         setTrips(tripsData.map((t: any) => ({
           id: t.id,
-          displayId: t.trip_code || 'TRIP-4501 (Syncing)',
+          displayId: t.trip_code || 'TRIP-PENDING',
           customerId: t.customer_id,
           driverId: t.driver_id,
           pickupLocation: t.pickup_location,
           dropLocation: t.drop_location,
           tripType: t.trip_type,
-          startDateTime: t.start_date_time,
-          endDateTime: t.end_date_time,
-          status: t.status,
+          startDateTime: t.start_time,
+          endDateTime: t.end_time,
+          status: t.trip_status as any,
           cancelReason: t.cancel_reason,
-          billAmount: t.bill_amount
+          billAmount: t.bill_amount,
+          paymentStatus: t.payment_status || 'pending',
+          paymentMode: t.payment_mode
         })));
+      }
+
+      // Sync current logged-in user displayId
+      if (user) {
+        const currentUserData = usersData?.find(u => u.id === user.id);
+        if (currentUserData) {
+          setUser(prev => prev ? { ...prev, displayId: currentUserData.staff_code || prev.displayId } : null);
+        }
       }
 
       setSyncStatus('synced');
@@ -131,11 +144,11 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     fetchData();
-    const channel = supabase.channel('ops-sync')
+    const channel = supabase.channel('crm-persistence-sync')
       .on('postgres_changes', { event: '*', schema: 'public' }, fetchData)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -155,21 +168,40 @@ const App: React.FC = () => {
 
   if (setupRequired) return <SetupWizard onRetry={fetchData} />;
 
-  if (!user) return (
-    <div className="relative">
-      {!isCloudReachable && (
-        <div className="fixed top-0 left-0 w-full bg-red-600 text-white p-2 text-center text-[10px] font-black uppercase tracking-widest z-[200]">
-          API Gateway Blocked. Check AdBlockers/VPN.
-        </div>
-      )}
-      <Login onLogin={setUser} isCloudReachable={isCloudReachable} onRetry={fetchData} />
-    </div>
-  );
+  if (!user) return <Login onLogin={setUser} isCloudReachable={isCloudReachable} onRetry={fetchData} />;
+
+  if (user.role === UserRole.CUSTOMER) {
+    return (
+      <CustomerDashboard 
+        user={user} 
+        trips={trips} 
+        customers={customers} 
+        setTrips={setTrips} 
+        drivers={drivers} 
+        onLogout={() => setUser(null)}
+        companySettings={companySettings}
+      />
+    );
+  }
+
+  if (user.role === UserRole.DRIVER) {
+    return (
+      <DriverDashboard 
+        user={user} 
+        trips={trips} 
+        setTrips={setTrips} 
+        drivers={drivers} 
+        setDrivers={setDrivers} 
+        onLogout={() => setUser(null)}
+        companySettings={companySettings}
+      />
+    );
+  }
 
   return (
     <HashRouter>
       <div className="flex h-screen bg-black overflow-hidden">
-        <Sidebar role={user.role} onLogout={() => setUser(null)} />
+        <Sidebar user={user} onLogout={() => setUser(null)} />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           <Navbar 
             user={user} notifications={notifications} 
@@ -183,7 +215,7 @@ const App: React.FC = () => {
               <Route path="/drivers" element={<DriverManagement drivers={drivers} setDrivers={setDrivers} trips={trips} users={users} />} />
               <Route path="/customers" element={<CustomerManagement customers={customers} setCustomers={setCustomers} trips={trips} user={user} />} />
               <Route path="/trips" element={<TripManagement trips={trips} setTrips={setTrips} drivers={drivers} customers={customers} user={user} setCustomers={setCustomers} companySettings={companySettings} />} />
-              <Route path="/finance" element={[UserRole.ADMIN, UserRole.FINANCE].includes(user.role) ? <FinanceReports trips={trips} drivers={drivers} /> : <Navigate to="/" />} />
+              <Route path="/finance" element={[UserRole.ADMIN, UserRole.FINANCE].includes(user.role) ? <FinanceReports trips={trips} drivers={drivers} customers={customers} companySettings={companySettings} /> : <Navigate to="/" />} />
               <Route path="/estimation" element={<TripEstimation />} />
               <Route path="/settings" element={user.role === UserRole.ADMIN ? <Settings settings={companySettings} setSettings={setCompanySettings} /> : <Navigate to="/" />} />
               <Route path="*" element={<Navigate to="/" replace />} />

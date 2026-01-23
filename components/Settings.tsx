@@ -28,53 +28,75 @@ const Settings: React.FC<SettingsProps> = ({ settings, setSettings }) => {
     setSettings(prev => ({ ...prev, [name]: value }));
   };
 
-  const sqlSnippet = `-- 0. Clean Slate (Forceful)
-DROP TABLE IF EXISTS public.leads CASCADE;
-DROP TABLE IF EXISTS public.trips CASCADE;
-DROP TABLE IF EXISTS public.customers CASCADE;
-DROP TABLE IF EXISTS public.crm_state CASCADE;
+  const sqlSnippet = `-- DRIVEBUDDY PRODUCTION REBUILD SCRIPT (V15 - PERMANENT PK FIX)
+-- 0. ENABLE UUID EXTENSION
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- 1. Create state table for cloud sync
-CREATE TABLE public.crm_state (
-  id BIGINT PRIMARY KEY,
-  payload JSONB,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 2. Create customers table
-CREATE TABLE public.customers (
-  id TEXT PRIMARY KEY,
-  name TEXT,
+-- 1. Create/Verify Tables
+CREATE TABLE IF NOT EXISTS public.users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  username TEXT UNIQUE NOT NULL,
+  password TEXT NOT NULL,
+  role TEXT NOT NULL,
+  name TEXT NOT NULL,
   mobile TEXT,
-  homeAddress TEXT,
-  officeAddress TEXT,
-  vehicleModel TEXT
-);
-
--- 3. Create trips table
-CREATE TABLE public.trips (
-  id TEXT PRIMARY KEY,
-  customerId TEXT REFERENCES public.customers(id),
-  driverId TEXT,
-  pickupLocation TEXT,
-  dropLocation TEXT,
-  tripType TEXT,
-  startDateTime TEXT,
-  endDateTime TEXT,
-  status TEXT,
-  billAmount FLOAT8,
-  paymentStatus TEXT,
-  paymentMode TEXT
-);
-
--- 4. Create leads table
-CREATE TABLE public.leads (
-  id BIGSERIAL PRIMARY KEY,
-  customer_id TEXT REFERENCES public.customers(id),
-  status TEXT DEFAULT 'new',
-  notes TEXT,
+  address TEXT,
+  staff_code TEXT UNIQUE,
   created_at TIMESTAMPTZ DEFAULT NOW()
-);`;
+);
+
+CREATE TABLE IF NOT EXISTS public.drivers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  license_number TEXT UNIQUE NOT NULL,
+  issue_date DATE,
+  expiry_date DATE,
+  address TEXT,
+  status TEXT DEFAULT 'available',
+  location_lat FLOAT8,
+  location_lng FLOAT8,
+  driver_code TEXT UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.customers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  mobile TEXT UNIQUE NOT NULL,
+  home_address TEXT,
+  office_address TEXT,
+  vehicle_model TEXT DEFAULT 'Standard',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.trips (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  customer_id UUID REFERENCES public.customers(id),
+  driver_id UUID REFERENCES public.drivers(id),
+  pickup_location TEXT NOT NULL,
+  drop_location TEXT NOT NULL,
+  trip_type TEXT NOT NULL,
+  start_date_time TIMESTAMPTZ,
+  end_date_time TIMESTAMPTZ,
+  status TEXT DEFAULT 'unassigned',
+  bill_amount FLOAT8,
+  trip_code TEXT UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. REPAIR PRIMARY KEY DEFAULTS
+-- Ensures existing tables auto-generate IDs, fixing the "null value" insert error.
+ALTER TABLE public.users ALTER COLUMN id SET DEFAULT gen_random_uuid();
+ALTER TABLE public.drivers ALTER COLUMN id SET DEFAULT gen_random_uuid();
+ALTER TABLE public.customers ALTER COLUMN id SET DEFAULT gen_random_uuid();
+ALTER TABLE public.trips ALTER COLUMN id SET DEFAULT gen_random_uuid();
+
+-- 3. ALIGN OPTIONAL COLUMNS
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS vehicle_model TEXT DEFAULT 'Standard';
+ALTER TABLE public.trips ADD COLUMN IF NOT EXISTS trip_code TEXT UNIQUE;
+
+-- 4. CRITICAL: FORCE SCHEMA RELOAD
+NOTIFY pgrst, 'reload schema';`;
 
   const copySql = () => {
     navigator.clipboard.writeText(sqlSnippet);
@@ -152,13 +174,13 @@ CREATE TABLE public.leads (
         <div className="flex items-center gap-4 text-orange-500">
           <div className="p-3 bg-orange-500/10 rounded-2xl">{ICONS.Reports}</div>
           <div>
-            <h3 className="text-xl font-black uppercase tracking-tighter">Infrastructure Rebuild</h3>
-            <p className="text-xs text-orange-500/60 uppercase font-bold tracking-widest">Fix for Foreign Key Dependency Error</p>
+            <h3 className="text-xl font-black uppercase tracking-tighter">ID Constraint Recovery</h3>
+            <p className="text-xs text-orange-500/60 uppercase font-bold tracking-widest">PostgreSQL Primary Key Repair</p>
           </div>
         </div>
         
         <p className="text-sm text-gray-400 leading-relaxed">
-          If you encountered the <span className="text-white font-bold">"cannot drop table because other objects depend on it"</span> error, use this updated script. It includes <span className="text-white font-mono">CASCADE</span> logic to automatically handle dependent tables like <span className="text-white font-mono">leads</span>.
+          If you encounter <span className="text-white font-mono text-[11px]">"null value in column id violates not-null"</span>, use the repair script below. It updates existing tables to auto-generate UUIDs.
         </p>
 
         <div className="relative group">
@@ -169,7 +191,7 @@ CREATE TABLE public.leads (
             onClick={copySql}
             className="absolute top-4 right-4 bg-gray-800 hover:bg-white hover:text-black px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
           >
-            {copyStatus === 'copied' ? 'Copied to Clipboard' : 'Copy SQL Script'}
+            {copyStatus === 'copied' ? 'SQL Copied' : 'Copy ID Repair SQL'}
           </button>
         </div>
       </div>
@@ -178,14 +200,8 @@ CREATE TABLE public.leads (
         <div className="flex items-center gap-4">
            <div className={`w-3 h-3 rounded-full bg-emerald-500 animate-pulse`}></div>
            <p className="text-xs text-gray-400 font-black uppercase tracking-[0.2em]">
-             System Core Active: Infrastructure Health Check
+             Cloud Infrastructure Sync: Operational
            </p>
-        </div>
-        <div className="flex items-center gap-8 text-right">
-           <div>
-             <p className="text-[10px] text-gray-600 font-black uppercase tracking-widest mb-1">Last Sync Check</p>
-             <span className="text-xs text-white font-mono">{settings.supabaseConfig?.lastSync || 'Pending Setup'}</span>
-           </div>
         </div>
       </div>
       

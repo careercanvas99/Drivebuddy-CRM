@@ -51,6 +51,7 @@ export const mockDrivers: Driver[] = [
 export const mockCustomers: Customer[] = [
   {
     id: 'CUST-001',
+    displayId: 'CUST-001',
     name: 'Animesh Basak',
     mobile: '+91 98765 43210',
     homeAddress: 'Prestige Shantiniketan, Whitefield',
@@ -59,6 +60,7 @@ export const mockCustomers: Customer[] = [
   },
   {
     id: 'CUST-002',
+    displayId: 'CUST-002',
     name: 'Priya Sharma',
     mobile: '+91 88776 65544',
     homeAddress: 'Indiranagar 100ft Road',

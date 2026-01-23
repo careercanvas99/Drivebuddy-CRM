@@ -1,8 +1,10 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Driver, Trip, Customer } from '../types.ts';
 import { ICONS } from '../constants.tsx';
 import TripBookingModal from './TripBookingModal.tsx';
+import MapTracker from './MapTracker.tsx';
+import { supabase } from '../lib/supabase.js';
 
 interface DashboardProps {
   users: User[];
@@ -15,6 +17,36 @@ interface DashboardProps {
 
 const Dashboard: React.FC<DashboardProps> = ({ users, drivers, trips, customers, setTrips, setCustomers }) => {
   const [showBookingModal, setShowBookingModal] = useState(false);
+  const [activeDrivers, setActiveDrivers] = useState<Driver[]>(drivers);
+
+  // Admin Location Tracking: Refresh every 1 minute
+  useEffect(() => {
+    const fetchLatestLocations = async () => {
+      const { data, error } = await supabase.from('drivers').select('*');
+      if (data && !error) {
+        setActiveDrivers(data.map((d: any) => ({
+          id: d.id,
+          displayId: d.driver_code || 'DBDY-HYD-DR-000',
+          name: d.name,
+          licenseNumber: d.license_number,
+          issueDate: d.issue_date,
+          expiryDate: d.expiry_date,
+          address: d.address || '',
+          permanentAddress: d.permanent_address || '',
+          status: d.status || 'available',
+          location: [d.location_lat || 12.9716, d.location_lng || 77.5946]
+        })));
+      }
+    };
+
+    const interval = setInterval(fetchLatestLocations, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Update active drivers when drivers prop changes
+  useEffect(() => {
+    setActiveDrivers(drivers);
+  }, [drivers]);
 
   const stats = [
     { label: 'Active Drivers', value: drivers.filter(d => d.status !== 'inactive').length, icon: ICONS.Drivers, color: 'text-green-500' },
@@ -55,10 +87,57 @@ const Dashboard: React.FC<DashboardProps> = ({ users, drivers, trips, customers,
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-gray-950 rounded-[2.5rem] border border-gray-900 overflow-hidden shadow-2xl">
+        <div className="lg:col-span-2 bg-gray-950 rounded-[2.5rem] border border-gray-900 overflow-hidden shadow-2xl h-[500px]">
           <div className="p-6 border-b border-gray-900 flex justify-between items-center bg-black/20">
-            <h3 className="font-black text-white uppercase text-xs tracking-widest">Live Trip Manifest</h3>
-            <button className="text-[10px] font-black text-purple-500 hover:text-white uppercase tracking-widest transition-colors">View Full Registry →</button>
+            <h3 className="font-black text-white uppercase text-xs tracking-widest">Global Fleet Map</h3>
+            <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest animate-pulse">Live Tracking Enabled</span>
+          </div>
+          <div className="flex-1 h-full pb-16">
+            <MapTracker drivers={activeDrivers} />
+          </div>
+        </div>
+
+        <div className="bg-gray-950 rounded-[2.5rem] border border-gray-900 p-8 space-y-6 shadow-2xl overflow-y-auto max-h-[500px]">
+          <div className="flex items-center justify-between border-b border-gray-900 pb-4">
+             <h3 className="font-black text-white uppercase text-xs tracking-widest">Security Alerts</h3>
+             <span className="p-2 bg-red-950/40 text-red-500 rounded-xl">{ICONS.Notifications}</span>
+          </div>
+          <div className="space-y-4">
+            {drivers.filter(d => {
+              const daysLeft = Math.ceil((new Date(d.expiryDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24));
+              return daysLeft < 30;
+            }).map(driver => {
+              const daysLeft = Math.ceil((new Date(driver.expiryDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24));
+              return (
+                <div key={driver.id} className="flex items-center justify-between p-4 bg-red-950/10 border border-red-500/20 rounded-2xl group hover:bg-red-950/20 transition-all">
+                  <div>
+                    <p className="text-[10px] text-red-400 font-black uppercase tracking-widest mb-1">License Expiring</p>
+                    <p className="text-sm font-bold text-white leading-none">{driver.name}</p>
+                    <p className="text-[8px] text-gray-500 font-mono mt-1">{driver.displayId}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-lg font-black text-red-500 leading-none">{daysLeft}d</p>
+                    <p className="text-[8px] text-gray-600 uppercase font-black mt-1">Remaining</p>
+                  </div>
+                </div>
+              );
+            }).slice(0, 5)}
+            {drivers.filter(d => {
+              const daysLeft = Math.ceil((new Date(d.expiryDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24));
+              return daysLeft < 30;
+            }).length === 0 && (
+              <div className="p-12 text-center text-gray-700 italic text-sm">
+                System clear. No immediate license expirations found.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="lg:col-span-3 bg-gray-950 rounded-[2.5rem] border border-gray-900 overflow-hidden shadow-2xl">
+          <div className="p-6 border-b border-gray-900 flex justify-between items-center bg-black/20">
+            <h3 className="font-black text-white uppercase text-xs tracking-widest">Recent Activity Manifest</h3>
+            <button className="text-[10px] font-black text-purple-500 hover:text-white uppercase tracking-widest transition-colors">View All Manifests →</button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -102,43 +181,6 @@ const Dashboard: React.FC<DashboardProps> = ({ users, drivers, trips, customers,
             </table>
           </div>
         </div>
-
-        <div className="bg-gray-950 rounded-[2.5rem] border border-gray-900 p-8 space-y-6 shadow-2xl">
-          <div className="flex items-center justify-between border-b border-gray-900 pb-4">
-             <h3 className="font-black text-white uppercase text-xs tracking-widest">Security Alerts</h3>
-             <span className="p-2 bg-red-950/40 text-red-500 rounded-xl">{ICONS.Notifications}</span>
-          </div>
-          <div className="space-y-4">
-            {drivers.filter(d => {
-              const daysLeft = Math.ceil((new Date(d.expiryDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24));
-              return daysLeft < 30;
-            }).map(driver => {
-              const daysLeft = Math.ceil((new Date(driver.expiryDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24));
-              return (
-                <div key={driver.id} className="flex items-center justify-between p-4 bg-red-950/10 border border-red-500/20 rounded-2xl group hover:bg-red-950/20 transition-all">
-                  <div>
-                    <p className="text-[10px] text-red-400 font-black uppercase tracking-widest mb-1">License Expiring</p>
-                    <p className="text-sm font-bold text-white leading-none">{driver.name}</p>
-                    <p className="text-[8px] text-gray-500 font-mono mt-1">{driver.displayId}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-lg font-black text-red-500 leading-none">{daysLeft}d</p>
-                    <p className="text-[8px] text-gray-600 uppercase font-black mt-1">Remaining</p>
-                  </div>
-                </div>
-              );
-            })}
-            {drivers.filter(d => {
-              const daysLeft = Math.ceil((new Date(d.expiryDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24));
-              return daysLeft < 30;
-            }).length === 0 && (
-              <div className="p-12 text-center text-gray-700 italic text-sm">
-                System clear. No immediate license expirations found.
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
 
       {showBookingModal && (
         <TripBookingModal 

@@ -1,9 +1,10 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-// Added TripStatus to the imports from ../types.ts
-import { User, Trip, Driver, TripStatus } from '../types.ts';
+import { User, Trip, Driver, TripStatus, CompanySettings, PaymentMode } from '../types.ts';
 import { ICONS } from '../constants.tsx';
 import { calculateFareInternal } from './TripEstimation.tsx';
+import { supabase } from '../lib/supabase.js';
+import { generatePDFInvoice } from '../services/InvoiceService.ts';
 
 interface DriverDashboardProps {
   user: User;
@@ -12,38 +13,48 @@ interface DriverDashboardProps {
   drivers: Driver[];
   setDrivers: React.Dispatch<React.SetStateAction<Driver[]>>;
   onLogout: () => void;
+  companySettings: CompanySettings;
 }
 
-const DriverDashboard: React.FC<DriverDashboardProps> = ({ user, trips, setTrips, drivers, setDrivers, onLogout }) => {
+const DriverDashboard: React.FC<DriverDashboardProps> = ({ user, trips, setTrips, drivers, setDrivers, onLogout, companySettings }) => {
   const [activeSelfieType, setActiveSelfieType] = useState<'start' | 'end' | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
-  const [view, setView] = useState<'trip' | 'history'>('trip');
+  const [view, setView] = useState<'terminal' | 'missions' | 'wallet'>('terminal');
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>('online');
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // CRITICAL: Filter trips strictly assigned to THIS driver
-  const currentDriver = drivers.find(d => d.name === user.name || d.id === user.id);
+  const currentDriver = drivers.find(d => d.id === user.id);
   const myTrips = trips.filter(t => t.driverId === currentDriver?.id);
   const myActiveTrip = myTrips.find(t => (t.status === 'assigned' || t.status === 'started'));
   const myCompletedTrips = myTrips.filter(t => t.status === 'completed');
+  const myAssignedTrips = myTrips.filter(t => t.status === 'assigned');
 
-  // Real-time Location Tracking (Simulation)
+  // Location Tracking & Sync
   useEffect(() => {
-    if (!myActiveTrip || !currentDriver) return;
+    if (!currentDriver) return;
 
     const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
+      async (pos) => {
         const { latitude, longitude } = pos.coords;
         setDrivers(prev => prev.map(d => 
           d.id === currentDriver.id ? { ...d, location: [latitude, longitude] } : d
         ));
+        
+        if (myActiveTrip?.status === 'started') {
+           await supabase.from('drivers').update({
+             location_lat: latitude,
+             location_lng: longitude
+           } as any).eq('id', currentDriver.id);
+        }
       },
       (err) => console.error("Tracking Error:", err),
       { enableHighAccuracy: true }
     );
 
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [myActiveTrip, currentDriver?.id]);
+  }, [myActiveTrip?.status, currentDriver?.id]);
 
   const startCamera = async () => {
     setCapturedImage(null);
@@ -51,7 +62,7 @@ const DriverDashboard: React.FC<DriverDashboardProps> = ({ user, trips, setTrips
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
       if (videoRef.current) videoRef.current.srcObject = stream;
     } catch (err) {
-      alert("Error accessing camera. Check permissions.");
+      alert("Camera Protocol Error.");
     }
   };
 
@@ -68,164 +79,166 @@ const DriverDashboard: React.FC<DriverDashboardProps> = ({ user, trips, setTrips
     }
   };
 
-  const handleTripAction = () => {
+  const handleTripAction = async () => {
     if (!myActiveTrip || !capturedImage) return;
+    setIsUpdating(true);
 
     const isStarting = activeSelfieType === 'start';
-    // Explicitly typed newStatus as TripStatus to avoid assignment error
     const newStatus: TripStatus = isStarting ? 'started' : 'completed';
-    const now = new Date();
+    const now = new Date().toISOString();
     
-    setTrips(prev => prev.map(t => {
-      if (t.id === myActiveTrip.id) {
-        // Explicitly typed the updated object as Trip
-        const updated: Trip = { ...t, status: newStatus };
-        if (isStarting) {
-          updated.startSelfie = capturedImage;
-          updated.startDateTime = now.toISOString();
-        } else {
-          updated.endSelfie = capturedImage;
-          updated.endDateTime = now.toISOString();
-          const billing = calculateFareInternal(new Date(t.startDateTime), now, "No", "Instation", t.tripType === 'one-way' ? "One Way" : "Round Trip");
-          updated.billAmount = billing.totalPrice;
-          updated.paymentStatus = 'pending';
-        }
-        return updated;
+    try {
+      const dbUpdates: any = { trip_status: newStatus };
+      if (isStarting) {
+        dbUpdates.start_time = now;
+      } else {
+        dbUpdates.end_time = now;
+        const billing = calculateFareInternal(new Date(myActiveTrip.startDateTime), new Date(now), "No", "Instation", myActiveTrip.tripType === 'one-way' ? "One Way" : "Round Trip");
+        const finalAmount = Math.round(billing.totalPrice * 1.15);
+        dbUpdates.bill_amount = finalAmount;
+        dbUpdates.payment_status = 'pending';
+        dbUpdates.payment_mode = paymentMode;
       }
-      return t;
-    }));
-    
-    if (!isStarting) setDrivers(prev => prev.map(d => d.id === currentDriver?.id ? { ...d, status: 'available' } : d));
-    else setDrivers(prev => prev.map(d => d.id === currentDriver?.id ? { ...d, status: 'busy' } : d));
-    
-    setActiveSelfieType(null);
-    setCapturedImage(null);
+
+      const { error } = await supabase.from('trips').update(dbUpdates).eq('id', myActiveTrip.id);
+      if (error) throw error;
+
+      const newDriverStatus = isStarting ? 'busy' : 'available';
+      await supabase.from('drivers').update({ status: newDriverStatus } as any).eq('id', currentDriver?.id);
+
+      setTrips(prev => prev.map(t => t.id === myActiveTrip.id ? { 
+        ...t, 
+        status: newStatus,
+        startDateTime: isStarting ? now : t.startDateTime,
+        endDateTime: isStarting ? t.endDateTime : now,
+        billAmount: isStarting ? t.billAmount : dbUpdates.bill_amount,
+        paymentStatus: 'pending',
+        paymentMode: isStarting ? undefined : paymentMode
+      } : t));
+
+      setActiveSelfieType(null);
+      setCapturedImage(null);
+    } catch (err: any) {
+      alert(`Manifest Update Failed: ${err.message}`);
+    } finally {
+      setIsUpdating(false);
+    }
   };
 
   return (
     <div className="min-h-screen bg-black text-white flex flex-col font-sans">
-      <nav className="h-16 border-b border-gray-800 px-6 flex items-center justify-between bg-gray-950/80 backdrop-blur-md sticky top-0 z-50">
+      <nav className="h-16 border-b border-gray-800 px-6 flex items-center justify-between bg-gray-950/80 sticky top-0 z-50 shadow-2xl">
         <h1 className="text-xl font-black text-purple-500 tracking-tighter">DRIVEBUDDY</h1>
         <div className="flex items-center gap-3">
-          <button onClick={onLogout} className="p-2 text-red-500 bg-gray-900 border border-gray-800 rounded-xl">{ICONS.Logout}</button>
-          <div className="w-10 h-10 rounded-xl bg-purple-600 flex items-center justify-center font-black shadow-lg">
+          <button onClick={onLogout} className="p-2 text-red-500 bg-gray-900 border border-gray-800 rounded-xl transition-all">{ICONS.Logout}</button>
+          <div className="w-10 h-10 rounded-xl bg-purple-600 flex items-center justify-center font-black shadow-xl">
             {user.name.charAt(0)}
           </div>
         </div>
       </nav>
 
       <main className="flex-1 p-6 max-w-md mx-auto w-full">
-        {view === 'trip' ? (
-          <div className="space-y-6">
+        <div className="flex bg-gray-900 p-1.5 rounded-2xl mb-8 border border-gray-800 shadow-inner">
+          <button onClick={() => setView('terminal')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${view === 'terminal' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-500'}`}>Terminal</button>
+          <button onClick={() => setView('missions')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${view === 'missions' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-500'}`}>Missions</button>
+          <button onClick={() => setView('wallet')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${view === 'wallet' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-500'}`}>Wallet</button>
+        </div>
+
+        {view === 'terminal' && (
+          <div className="space-y-6 animate-in slide-in-from-left duration-500">
             <div className="bg-gray-900 border border-gray-800 rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden group">
-              <h2 className="text-3xl font-black mb-1">Hello, Partner</h2>
-              <p className="text-[10px] text-purple-500 font-black uppercase tracking-widest mb-6">Partner ID: {currentDriver?.id}</p>
+              <div className="absolute top-0 left-0 w-full h-1 bg-purple-600 shadow-[0_0_10px_#9333ea]"></div>
+              <h2 className="text-3xl font-black mb-1">Status: {currentDriver?.status.toUpperCase()}</h2>
+              <p className="text-[10px] text-purple-500 font-black uppercase tracking-widest mb-6">ID: {user.displayId}</p>
               
               {myActiveTrip ? (
-                <div className="space-y-6 animate-in slide-in-from-top">
-                  <div className="bg-black/50 p-6 rounded-3xl border border-gray-800">
-                    <p className="text-[10px] text-gray-500 uppercase font-black mb-4 tracking-widest">Active Journey</p>
-                    <div className="flex gap-4 mb-6">
-                      <div className="flex flex-col items-center">
-                        <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                        <div className="w-0.5 flex-1 bg-gray-800 my-1"></div>
-                        <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                      </div>
-                      <div className="flex-1 space-y-4">
-                        <p className="text-sm font-bold truncate">{myActiveTrip.pickupLocation}</p>
-                        <p className="text-sm font-bold truncate">{myActiveTrip.dropLocation}</p>
-                      </div>
+                <div className="space-y-6">
+                  <div className="bg-black/50 p-6 rounded-3xl border border-gray-800 shadow-inner">
+                    <p className="text-[10px] text-gray-500 uppercase font-black mb-4 tracking-widest flex items-center gap-2">
+                       <span className={`w-1.5 h-1.5 rounded-full ${myActiveTrip.status === 'started' ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'} `}></span> {myActiveTrip.status.toUpperCase()} MANIFEST
+                    </p>
+                    <div className="space-y-4 mb-8">
+                        <div>
+                          <p className="text-[9px] text-gray-600 font-black uppercase mb-1">Pickup</p>
+                          <p className="text-sm font-bold truncate leading-tight">{myActiveTrip.pickupLocation}</p>
+                        </div>
                     </div>
-                    
+
                     <button 
                       onClick={() => { setActiveSelfieType(myActiveTrip.status === 'assigned' ? 'start' : 'end'); startCamera(); }}
-                      className={`w-full py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl transition-all active:scale-95 ${myActiveTrip.status === 'assigned' ? 'bg-green-600' : 'bg-blue-600'}`}
+                      className={`w-full py-5 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2 ${myActiveTrip.status === 'assigned' ? 'bg-emerald-600' : 'bg-blue-600'}`}
                     >
-                      {ICONS.Camera} Verify {myActiveTrip.status === 'assigned' ? 'Start' : 'End'} Trip
+                      {ICONS.Camera} Authenticate {myActiveTrip.status === 'assigned' ? 'Trip Start' : 'Complete Trip'}
                     </button>
                   </div>
                 </div>
               ) : (
-                <div className="py-12 text-center bg-black/40 rounded-3xl border border-gray-800">
-                  <div className="text-gray-700 scale-[2.5] mb-8">{ICONS.Trips}</div>
-                  <h3 className="text-lg font-bold">No Active Trips</h3>
-                  <p className="text-xs text-gray-500 mt-2 px-8 leading-relaxed">Please wait while the office team assigns a journey to you.</p>
+                <div className="py-16 text-center bg-black/40 rounded-3xl border border-gray-800 border-dashed">
+                  <h3 className="text-lg font-bold uppercase tracking-tighter">Standby Protocol</h3>
+                  <p className="text-xs text-gray-500 mt-2 px-8 leading-relaxed font-medium">Monitoring global dispatch.</p>
                 </div>
               )}
             </div>
+          </div>
+        )}
 
-            <div className="grid grid-cols-2 gap-4">
-               <div className="bg-gray-950 border border-gray-800 p-6 rounded-[2rem] text-center">
-                  <p className="text-[8px] text-gray-500 uppercase font-black mb-1">Lifetime Trips</p>
-                  <p className="text-2xl font-black text-white">{myCompletedTrips.length}</p>
-               </div>
-               <div className="bg-gray-950 border border-gray-800 p-6 rounded-[2rem] text-center">
-                  <p className="text-[8px] text-gray-500 uppercase font-black mb-1">Earnings</p>
-                  <p className="text-2xl font-black text-green-500">₹{myCompletedTrips.reduce((acc, t) => acc + (t.billAmount || 0), 0).toFixed(0)}</p>
-               </div>
-            </div>
-            
-            <button 
-              onClick={() => setView('history')}
-              className="w-full bg-gray-900 border border-gray-800 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-white transition-all"
-            >
-              View Earnings History
-            </button>
-          </div>
-        ) : (
-          <div className="animate-in slide-in-from-bottom space-y-4">
-             <button onClick={() => setView('trip')} className="text-[10px] font-black uppercase text-gray-500 hover:text-white mb-6">← Dashboard</button>
-             <h2 className="text-2xl font-black mb-6">Completed Journeys</h2>
-             {myCompletedTrips.length === 0 ? (
-               <div className="p-12 text-center text-gray-600 italic">No historical records found.</div>
-             ) : (
-               myCompletedTrips.map(trip => (
-                 <div key={trip.id} className="bg-gray-900 border border-gray-800 p-5 rounded-3xl shadow-md">
-                   <div className="flex justify-between items-start mb-2">
-                     <p className="text-[9px] text-purple-500 font-mono font-bold">{trip.id}</p>
-                     <p className="text-[9px] text-gray-500 font-bold">{new Date(trip.endDateTime).toLocaleDateString()}</p>
-                   </div>
-                   <p className="text-xs font-bold text-gray-200 truncate mb-3">{trip.dropLocation}</p>
-                   <div className="flex justify-between items-center pt-3 border-t border-gray-800">
-                     <span className="text-[9px] text-gray-600 font-black uppercase tracking-widest">{trip.tripType}</span>
-                     <span className="text-green-500 font-black text-sm">₹{trip.billAmount}</span>
-                   </div>
+        {view === 'missions' && (
+           <div className="animate-in slide-in-from-right duration-500 space-y-4">
+              <h2 className="text-3xl font-black uppercase tracking-tighter mb-6">Assigned Missions</h2>
+              {myAssignedTrips.length === 0 ? (
+                <div className="p-16 text-center text-gray-700 italic border border-gray-900 rounded-[2.5rem]">No pending missions.</div>
+              ) : (
+                myAssignedTrips.map(trip => (
+                  <div key={trip.id} className="bg-gray-900 border border-gray-800 p-6 rounded-[2rem] shadow-xl">
+                    <p className="text-[10px] text-purple-500 font-mono font-bold tracking-widest">{trip.displayId}</p>
+                    <p className="text-sm font-bold text-gray-200 mb-2">{trip.pickupLocation}</p>
+                  </div>
+                ))
+              )}
+           </div>
+        )}
+
+        {view === 'wallet' && (
+           <div className="animate-in slide-in-from-bottom duration-500 space-y-4">
+             <h2 className="text-3xl font-black uppercase tracking-tighter mb-6">Trip Payments</h2>
+             {myCompletedTrips.map(trip => (
+               <div key={trip.id} className="bg-gray-900 border border-gray-800 p-6 rounded-[2rem] shadow-xl flex justify-between items-center group">
+                 <div className="space-y-1">
+                   <p className="text-[9px] text-purple-500 font-mono font-bold tracking-widest">{trip.displayId}</p>
+                   <p className="text-[10px] text-white font-black uppercase tracking-widest">{trip.paymentMode?.toUpperCase() || 'UNSETTLED'}</p>
                  </div>
-               ))
-             )}
-          </div>
+                 <div className="text-right">
+                   <p className="text-emerald-500 font-black text-lg">₹{trip.billAmount}</p>
+                 </div>
+               </div>
+             ))}
+           </div>
         )}
       </main>
 
       {activeSelfieType && (
-        <div className="fixed inset-0 bg-black z-[110] flex flex-col p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="text-xl font-black text-purple-500 uppercase">Verification</h3>
-            <button onClick={() => setActiveSelfieType(null)} className="text-gray-500">{ICONS.Cancel}</button>
+        <div className="fixed inset-0 bg-black z-[120] flex flex-col p-6 animate-in slide-in-from-bottom duration-300">
+          <div className="flex justify-between items-center mb-8">
+            <h3 className="text-2xl font-black text-purple-500 uppercase tracking-tighter">Authentication</h3>
+            <button onClick={() => setActiveSelfieType(null)} className="text-gray-500 p-2">✕</button>
           </div>
-          
-          <div className="flex-1 bg-gray-900 rounded-[2.5rem] overflow-hidden border-2 border-purple-500/30 relative">
+          <div className="flex-1 bg-gray-900 rounded-[3rem] overflow-hidden border-2 border-purple-500/30 relative shadow-2xl">
             {!capturedImage ? (
               <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
             ) : (
-              <img src={capturedImage} className="w-full h-full object-cover" alt="Verification" />
+              <img src={capturedImage} className="w-full h-full object-cover" alt="Authentication Capture" />
             )}
           </div>
-          
           <canvas ref={canvasRef} width="400" height="300" className="hidden" />
-
-          <div className="mt-8 space-y-4">
+          <div className="mt-10 space-y-4">
             {!capturedImage ? (
-              <button 
-                onClick={capturePhoto}
-                className="w-full bg-purple-600 py-5 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl active:scale-95"
-              >
-                Capture Photo
-              </button>
+              <button onClick={capturePhoto} className="w-full bg-purple-600 py-6 rounded-[2.5rem] font-black uppercase tracking-widest text-[11px] text-white shadow-2xl">Capture Identity Scan</button>
             ) : (
               <div className="flex gap-4">
-                <button onClick={() => { setCapturedImage(null); startCamera(); }} className="flex-1 bg-gray-900 py-5 rounded-[2rem] font-black uppercase text-[10px]">Retake</button>
-                <button onClick={handleTripAction} className="flex-1 bg-green-600 py-5 rounded-[2rem] font-black uppercase text-[10px] shadow-xl">Confirm</button>
+                <button onClick={() => { setCapturedImage(null); startCamera(); }} className="flex-1 bg-gray-900 py-6 rounded-[2.5rem] font-black uppercase text-[10px] text-gray-400">Reset</button>
+                <button disabled={isUpdating} onClick={handleTripAction} className="flex-1 bg-emerald-600 py-6 rounded-[2.5rem] font-black uppercase text-[10px] text-white shadow-xl">
+                  {isUpdating ? 'UPLOADING...' : 'CONFIRM MANIFEST'}
+                </button>
               </div>
             )}
           </div>

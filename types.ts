@@ -24,7 +24,7 @@ export interface CompanySettings {
 
 export interface User {
   id: string; // Internal UUID
-  displayId: string; // Business ID like DBDY-HYD-001
+  displayId: string; // Business ID: DBDY-HYD-XXX
   username: string;
   password?: string;
   role: UserRole;
@@ -35,7 +35,7 @@ export interface User {
 
 export interface Driver {
   id: string; // Internal UUID
-  displayId: string; // Business ID like DBDY-HYD-DR-001
+  displayId: string; // Business ID: DBDY-HYD-DR-XXX
   name: string;
   licenseNumber: string;
   issueDate: string;
@@ -48,7 +48,8 @@ export interface Driver {
 }
 
 export interface Customer {
-  id: string;
+  id: string; // Internal UUID
+  displayId: string; // Business ID: CUST-XXXX
   name: string;
   mobile: string;
   homeAddress: string;
@@ -58,7 +59,7 @@ export interface Customer {
 
 export interface Trip {
   id: string; // Internal UUID
-  displayId: string; // Business ID like TRIP-4501
+  displayId: string; // Business ID: TRIP-XXXX
   customerId: string;
   driverId?: string;
   pickupLocation: string;
@@ -69,10 +70,8 @@ export interface Trip {
   status: TripStatus;
   cancelReason?: string;
   billAmount?: number;
-  // Added missing properties to satisfy DriverDashboard usage
-  startSelfie?: string;
-  endSelfie?: string;
   paymentStatus?: PaymentStatus;
+  paymentMode?: PaymentMode;
 }
 
 export interface Notification {
