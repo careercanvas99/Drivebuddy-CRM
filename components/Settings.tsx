@@ -28,7 +28,7 @@ const Settings: React.FC<SettingsProps> = ({ settings, setSettings }) => {
     setSettings(prev => ({ ...prev, [name]: value }));
   };
 
-  const sqlSnippet = `-- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE REPAIR V47
+  const sqlSnippet = `-- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE REPAIR V49
 -- 1. SETUP SEQUENCES
 CREATE SEQUENCE IF NOT EXISTS seq_staff_code START 1;
 CREATE SEQUENCE IF NOT EXISTS seq_driver_code START 1;
@@ -36,7 +36,7 @@ CREATE SEQUENCE IF NOT EXISTS seq_trip_code START 4501;
 CREATE SEQUENCE IF NOT EXISTS seq_customer_code START 101;
 
 -- 2. GENERATION FUNCTION
-CREATE OR REPLACE FUNCTION public.fn_generate_business_id_v47() RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION public.fn_generate_business_id_v49() RETURNS TRIGGER AS $$
 BEGIN
   IF TG_TABLE_NAME = 'users' AND (NEW.staff_code IS NULL OR NEW.staff_code = '') THEN
     NEW.staff_code := 'DBDY-HYD-' || LPAD(nextval('seq_staff_code')::text, 3, '0');
@@ -53,16 +53,16 @@ $$ LANGUAGE plpgsql;
 
 -- 3. ATTACH TRIGGERS
 DROP TRIGGER IF EXISTS tr_users_code ON public.users;
-CREATE TRIGGER tr_users_code BEFORE INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
+CREATE TRIGGER tr_users_code BEFORE INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v49();
 
 DROP TRIGGER IF EXISTS tr_drivers_code ON public.drivers;
-CREATE TRIGGER tr_drivers_code BEFORE INSERT ON public.drivers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
+CREATE TRIGGER tr_drivers_code BEFORE INSERT ON public.drivers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v49();
 
 DROP TRIGGER IF EXISTS tr_trips_code ON public.trips;
-CREATE TRIGGER tr_trips_code BEFORE INSERT ON public.trips FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
+CREATE TRIGGER tr_trips_code BEFORE INSERT ON public.trips FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v49();
 
 DROP TRIGGER IF EXISTS tr_customers_code ON public.customers;
-CREATE TRIGGER tr_customers_code BEFORE INSERT ON public.customers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
+CREATE TRIGGER tr_customers_code BEFORE INSERT ON public.customers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v49();
 
 -- 4. REFRESH API CACHE
 NOTIFY pgrst, 'reload schema';`;
@@ -143,7 +143,7 @@ NOTIFY pgrst, 'reload schema';`;
         <div className="flex items-center gap-4 text-orange-500">
           <div className="p-3 bg-orange-500/10 rounded-2xl">{ICONS.Reports}</div>
           <div>
-            <h3 className="text-xl font-black uppercase tracking-tighter">Unified ID Generation Protocol (V47)</h3>
+            <h3 className="text-xl font-black uppercase tracking-tighter">Unified ID Generation Protocol (V49)</h3>
             <p className="text-xs text-orange-500/60 uppercase font-bold tracking-widest">Global Sequence Maintenance</p>
           </div>
         </div>

@@ -27,12 +27,12 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
   
   // Modals for Actions
   const [showAssignModal, setShowAssignModal] = useState(false);
-  const [showReasonModal, setShowReasonModal] = useState<{ type: 'REASSIGN' | 'DELETE', targetId?: string } | null>(null);
+  const [showReasonModal, setShowReasonModal] = useState<{ type: 'REASSIGN' | 'DELETE' | 'END_TRIP', targetId?: string } | null>(null);
   const [actionReason, setActionReason] = useState('');
   const [pendingDriverId, setPendingDriverId] = useState<string | null>(null);
 
   const isAdminOrManager = [UserRole.ADMIN, UserRole.OPS_MANAGER].includes(user.role);
-  const canAssign = [UserRole.ADMIN, UserRole.OPS_MANAGER, UserRole.OPERATION_EXECUTIVE].includes(user.role);
+  const canControlMission = [UserRole.ADMIN, UserRole.OPS_MANAGER, UserRole.OPERATION_EXECUTIVE].includes(user.role);
 
   useEffect(() => {
     if (viewingTripId) {
@@ -121,6 +121,72 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
       performed_by: user.id,
       reason
     }]);
+  };
+
+  const handleStartTrip = async () => {
+    if (!detailedTrip || !detailedTrip.driverId) {
+      alert("ERROR: Mission cannot start without an allocated Pilot.");
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const now = new Date().toISOString();
+      await supabase.from('trips').update({
+        trip_status: 'STARTED',
+        start_time: now
+      }).eq('id', detailedTrip.id);
+
+      await logAction(detailedTrip.id, 'TRIP_STARTED', 'Staff-Initiated Manual Override');
+      alert('Mission INITIALIZED successfully.');
+      fetchDetailedTrip(detailedTrip.id);
+    } catch (err: any) {
+      alert(`Sync Failure: ${err.message}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleEndTrip = async () => {
+    if (!detailedTrip || !actionReason) return;
+    setIsProcessing(true);
+
+    try {
+      const now = new Date().toISOString();
+      
+      // Calculate Fare
+      const billing = calculateFareInternal(
+        new Date(detailedTrip.startDateTime),
+        new Date(now),
+        "No",
+        detailedTrip.tripRoute,
+        detailedTrip.tripType === 'one-way' ? "One Way" : "Round Trip"
+      );
+
+      // 1. Update Trip Table
+      await supabase.from('trips').update({
+        trip_status: 'COMPLETED',
+        end_time: now,
+        bill_amount: billing.totalPrice,
+        payment_status: 'pending'
+      }).eq('id', detailedTrip.id);
+
+      // 2. Release Pilot
+      if (detailedTrip.driverId) {
+        await supabase.from('drivers').update({ status: 'Available' }).eq('id', detailedTrip.driverId);
+      }
+
+      // 3. Log Audit
+      await logAction(detailedTrip.id, 'TRIP_COMPLETED', `Staff Override: ${actionReason}`);
+
+      alert(`Mission TERMINATED. Total Bill: ₹${billing.totalPrice}`);
+      setShowReasonModal(null);
+      setActionReason('');
+      fetchDetailedTrip(detailedTrip.id);
+    } catch (err: any) {
+      alert(`Sync Failure: ${err.message}`);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleAssignDriver = async (driverId: string) => {
@@ -314,21 +380,30 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
                   </section>
 
                   <section className="bg-black/40 border border-gray-900 rounded-[2.5rem] p-8">
-                    <h4 className="text-[9px] text-gray-600 uppercase font-black tracking-widest mb-4">Pilot Allocation</h4>
+                    <h4 className="text-[9px] text-gray-600 uppercase font-black tracking-widest mb-4">Pilot Allocation & State</h4>
                     {detailedTrip.driver ? (
                       <div className="space-y-4">
-                        <div className="flex justify-between items-center">
+                        <div className="flex justify-between items-center mb-4">
                           <p className="text-lg font-black text-white">{detailedTrip.driver.name}</p>
-                          <span className="text-[10px] text-emerald-500 font-black uppercase">Busy</span>
+                          <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase ${detailedTrip.status === 'STARTED' ? 'bg-blue-500 text-white' : 'bg-gray-800 text-gray-400'}`}>{detailedTrip.status}</span>
                         </div>
-                        {canAssign && (
-                          <button onClick={() => setShowAssignModal(true)} className="w-full py-3 bg-gray-900 text-blue-500 font-black uppercase text-[9px] rounded-xl border border-gray-800 hover:bg-blue-600 hover:text-white transition-all tracking-widest">Request Pilot Change</button>
+                        
+                        {canControlMission && (
+                          <div className="grid grid-cols-1 gap-2">
+                            {detailedTrip.status === 'ASSIGNED' && (
+                              <button onClick={handleStartTrip} className="w-full py-4 bg-emerald-600 text-white font-black uppercase text-[10px] rounded-xl shadow-lg hover:bg-emerald-700 transition-all tracking-widest">Initialize Mission (Override)</button>
+                            )}
+                            {detailedTrip.status === 'STARTED' && (
+                              <button onClick={() => setShowReasonModal({ type: 'END_TRIP' })} className="w-full py-4 bg-red-600 text-white font-black uppercase text-[10px] rounded-xl shadow-lg hover:bg-red-700 transition-all tracking-widest">Terminate Mission (Override)</button>
+                            )}
+                            <button onClick={() => setShowAssignModal(true)} className="w-full py-3 bg-gray-900 text-blue-500 font-black uppercase text-[9px] rounded-xl border border-gray-800 hover:bg-blue-600 hover:text-white transition-all tracking-widest">Request Pilot Change</button>
+                          </div>
                         )}
                       </div>
                     ) : (
                       <div className="text-center py-4">
                         <p className="text-xs text-gray-600 italic mb-4">No Pilot Assigned</p>
-                        {canAssign && (
+                        {isAdminOrManager && (
                           <button onClick={() => setShowAssignModal(true)} className="w-full py-4 bg-purple-600 text-white font-black uppercase text-[10px] rounded-2xl shadow-xl transition-all">Assign Professional Pilot</button>
                         )}
                       </div>
@@ -338,14 +413,14 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
 
                <div className="bg-gray-900/30 border border-gray-800 rounded-[2.5rem] p-8 flex flex-col h-full">
                   <h4 className="text-[9px] text-gray-600 uppercase font-black tracking-widest mb-6">Mission Logs & Audit Trail</h4>
-                  <div className="flex-1 space-y-6 overflow-y-auto pr-4 custom-scrollbar max-h-[300px]">
+                  <div className="flex-1 space-y-6 overflow-y-auto pr-4 custom-scrollbar max-h-[400px]">
                     {detailedTrip.logs.map(log => (
-                      <div key={log.id} className="relative pl-6 border-l border-gray-800 pb-2 last:pb-0">
+                      <div key={log.id} className="relative pl-6 border-l border-gray-800 pb-4 last:pb-0">
                         <div className="absolute left-[-5px] top-0 w-2 h-2 rounded-full bg-purple-600 shadow-sm"></div>
                         <p className="text-[10px] font-black text-white uppercase tracking-tight">{log.action.replace(/_/g, ' ')}</p>
-                        <p className="text-[8px] text-gray-500 uppercase mt-1">Performed by: {log.performer_name} ({log.performer_id})</p>
+                        <p className="text-[8px] text-gray-500 uppercase mt-1">Performed by: {log.performer_name || 'System Auto'} ({log.performer_id || 'ID-EXT'})</p>
                         <p className="text-[8px] text-gray-500 font-mono">{new Date(log.created_at).toLocaleString()}</p>
-                        {log.reason && <p className="text-[9px] text-blue-400 mt-2 bg-blue-950/20 p-2 rounded-lg italic">Reason: {log.reason}</p>}
+                        {log.reason && <p className="text-[9px] text-blue-400 mt-2 bg-blue-950/20 p-2 rounded-lg italic border border-blue-500/10">Reason: {log.reason}</p>}
                       </div>
                     ))}
                     {detailedTrip.logs.length === 0 && <p className="text-xs text-gray-700 italic text-center py-10">Historical logs are being archived...</p>}
@@ -362,7 +437,7 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
           <div className="bg-gray-950 border border-gray-800 rounded-[3rem] w-full max-w-xl p-10 shadow-2xl">
              <div className="flex justify-between items-center mb-10">
                <h3 className="text-2xl font-black text-white uppercase tracking-tighter">Pilot Allocation Pool</h3>
-               <button onClick={() => setShowAssignModal(false)} className="text-gray-500">✕</button>
+               <button onClick={() => setShowAssignModal(false)} className="text-gray-500 font-bold">✕</button>
              </div>
              
              <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
@@ -395,19 +470,20 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
         </div>
       )}
 
-      {/* REASON MODAL (Reassign or Delete) */}
+      {/* REASON MODAL (Reassign, Delete, or End Trip) */}
       {showReasonModal && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[300] p-6 backdrop-blur-lg">
-          <div className="bg-gray-950 border border-red-500/30 rounded-[3rem] w-full max-w-md p-10 shadow-2xl">
+          <div className={`bg-gray-950 border rounded-[3rem] w-full max-w-md p-10 shadow-2xl ${showReasonModal.type === 'DELETE' ? 'border-red-500/30' : 'border-blue-500/30'}`}>
              <h3 className="text-xl font-black text-white uppercase tracking-tighter mb-4">
-               {showReasonModal.type === 'REASSIGN' ? 'Pilot Reassignment Reason' : 'Mission Archive Reason'}
+               {showReasonModal.type === 'REASSIGN' ? 'Pilot Reassignment Reason' : 
+                showReasonModal.type === 'END_TRIP' ? 'Manual Mission Termination' : 'Mission Archive Reason'}
              </h3>
              <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-6">Security Authorization Required</p>
              
              <textarea 
                required
                placeholder="Enter mandatory justification..."
-               className="w-full bg-black border border-gray-800 rounded-2xl p-4 text-sm text-white focus:border-red-500 outline-none h-32 mb-6"
+               className={`w-full bg-black border rounded-2xl p-4 text-sm text-white outline-none h-32 mb-6 ${showReasonModal.type === 'DELETE' ? 'border-red-500/30 focus:border-red-500' : 'border-blue-500/30 focus:border-blue-500'}`}
                value={actionReason}
                onChange={e => setActionReason(e.target.value)}
              />
@@ -419,11 +495,13 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
                   onClick={() => {
                     if (showReasonModal.type === 'REASSIGN' && pendingDriverId) {
                       handleAssignDriver(pendingDriverId);
+                    } else if (showReasonModal.type === 'END_TRIP') {
+                      handleEndTrip();
                     } else {
                       handleDeleteTrip();
                     }
                   }}
-                  className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] text-white shadow-xl ${showReasonModal.type === 'DELETE' ? 'bg-red-600 shadow-red-900/40' : 'bg-blue-600 shadow-blue-900/40'}`}
+                  className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] text-white shadow-xl transition-all active:scale-95 ${showReasonModal.type === 'DELETE' ? 'bg-red-600 shadow-red-900/40' : 'bg-blue-600 shadow-blue-900/40'}`}
                 >
                   Confirm Operations
                 </button>
@@ -433,7 +511,7 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
       )}
 
       {showBookingModal && (
-        <TripBookingModal isOpen={showBookingModal} onClose={() => setShowBookingModal(false)} customers={customers} setCustomers={setCustomers} setTrips={setTrips} />
+        <TripBookingModal isOpen={showBookingModal} onClose={() => setShowBookingModal(false)} customers={customers} setCustomers={setCustomers} setTrips={setTrips} currentUserId={user.id} />
       )}
     </div>
   );

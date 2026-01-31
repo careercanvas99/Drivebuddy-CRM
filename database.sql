@@ -1,6 +1,6 @@
 
--- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE SCRIPT V47
--- TARGET: Unified Identity Management & Global Credential Registry
+-- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE SCRIPT V49
+-- TARGET: Mission Override Protocol & Unified Audit Registry
 
 -- 1. ENABLE EXTENSIONS
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -67,26 +67,26 @@ CREATE TABLE IF NOT EXISTS public.trips (
     bill_amount FLOAT8,
     payment_status TEXT DEFAULT 'pending',
     payment_mode TEXT,
+    deleted_at TIMESTAMPTZ,
+    delete_reason TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 4. V47 CREDENTIAL SYNC & ID GENERATION PROTOCOL
+CREATE TABLE IF NOT EXISTS public.trip_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    trip_id UUID REFERENCES public.trips(id) ON DELETE CASCADE,
+    action TEXT NOT NULL,
+    performed_by UUID REFERENCES public.users(id),
+    reason TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. V49 CREDENTIAL SYNC & ID GENERATION PROTOCOL
 CREATE INDEX IF NOT EXISTS idx_users_username ON public.users(username);
 CREATE INDEX IF NOT EXISTS idx_customers_mobile ON public.customers(mobile_number);
 
--- 5. FAIL-SAFE COLUMN REPAIR
-DO $$ 
-BEGIN 
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='status') THEN
-        ALTER TABLE public.users ADD COLUMN status TEXT DEFAULT 'Active';
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='staff_code') THEN
-        ALTER TABLE public.users ADD COLUMN staff_code TEXT UNIQUE;
-    END IF;
-END $$;
-
--- 6. BUSINESS ID GENERATION LOGIC V47
-CREATE OR REPLACE FUNCTION public.fn_generate_business_id_v47() RETURNS TRIGGER AS $$
+-- 5. BUSINESS ID GENERATION LOGIC V49
+CREATE OR REPLACE FUNCTION public.fn_generate_business_id_v49() RETURNS TRIGGER AS $$
 BEGIN
   IF TG_TABLE_NAME = 'users' AND (NEW.staff_code IS NULL OR NEW.staff_code = '') THEN
     NEW.staff_code := 'DBDY-HYD-' || LPAD(nextval('seq_staff_code')::text, 3, '0');
@@ -101,25 +101,25 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- 7. ATTACH TRIGGERS
+-- 6. ATTACH TRIGGERS
 DROP TRIGGER IF EXISTS tr_users_code ON public.users;
-CREATE TRIGGER tr_users_code BEFORE INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
+CREATE TRIGGER tr_users_code BEFORE INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v49();
 
 DROP TRIGGER IF EXISTS tr_drivers_code ON public.drivers;
-CREATE TRIGGER tr_drivers_code BEFORE INSERT ON public.drivers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
+CREATE TRIGGER tr_drivers_code BEFORE INSERT ON public.drivers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v49();
 
 DROP TRIGGER IF EXISTS tr_trips_code ON public.trips;
-CREATE TRIGGER tr_trips_code BEFORE INSERT ON public.trips FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
+CREATE TRIGGER tr_trips_code BEFORE INSERT ON public.trips FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v49();
 
 DROP TRIGGER IF EXISTS tr_customers_code ON public.customers;
-CREATE TRIGGER tr_customers_code BEFORE INSERT ON public.customers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
+CREATE TRIGGER tr_customers_code BEFORE INSERT ON public.customers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v49();
 
--- 8. INITIAL DATA RESET (Gopal's Verified Credentials)
+-- 7. INITIAL DATA RESET (Gopal's Verified Credentials)
 DELETE FROM public.users WHERE username = '9876543210';
 INSERT INTO public.users (name, username, password, role, status) 
 VALUES ('Gopal', '9876543210', 'Gopal@123', 'Customer', 'Active');
 
--- 9. PERMISSIONS
+-- 8. PERMISSIONS
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, postgres, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, postgres, service_role;
 NOTIFY pgrst, 'reload schema';

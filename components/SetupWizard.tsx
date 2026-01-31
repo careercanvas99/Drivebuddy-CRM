@@ -8,8 +8,8 @@ interface SetupWizardProps {
 const SetupWizard: React.FC<SetupWizardProps> = ({ onRetry }) => {
   const [copyStatus, setCopyStatus] = useState(false);
 
-  const sqlScript = `-- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE SCRIPT V47
--- TARGET: Unified Identity Management & Global Credential Registry
+  const sqlScript = `-- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE SCRIPT V49
+-- TARGET: Mission Override Protocol & Unified Audit Registry
 
 -- 1. ENABLE EXTENSIONS
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -76,11 +76,22 @@ CREATE TABLE IF NOT EXISTS public.trips (
     bill_amount FLOAT8,
     payment_status TEXT DEFAULT 'pending',
     payment_mode TEXT,
+    deleted_at TIMESTAMPTZ,
+    delete_reason TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 4. BUSINESS ID GENERATION LOGIC V47
-CREATE OR REPLACE FUNCTION public.fn_generate_business_id_v47() RETURNS TRIGGER AS $$
+CREATE TABLE IF NOT EXISTS public.trip_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    trip_id UUID REFERENCES public.trips(id) ON DELETE CASCADE,
+    action TEXT NOT NULL,
+    performed_by UUID REFERENCES public.users(id),
+    reason TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. BUSINESS ID GENERATION LOGIC V49
+CREATE OR REPLACE FUNCTION public.fn_generate_business_id_v49() RETURNS TRIGGER AS $$
 BEGIN
   IF TG_TABLE_NAME = 'users' AND (NEW.staff_code IS NULL OR NEW.staff_code = '') THEN
     NEW.staff_code := 'DBDY-HYD-' || LPAD(nextval('seq_staff_code')::text, 3, '0');
@@ -97,16 +108,16 @@ $$ LANGUAGE plpgsql;
 
 -- 5. ATTACH TRIGGERS
 DROP TRIGGER IF EXISTS tr_users_code ON public.users;
-CREATE TRIGGER tr_users_code BEFORE INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
+CREATE TRIGGER tr_users_code BEFORE INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v49();
 
 DROP TRIGGER IF EXISTS tr_drivers_code ON public.drivers;
-CREATE TRIGGER tr_drivers_code BEFORE INSERT ON public.drivers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
+CREATE TRIGGER tr_drivers_code BEFORE INSERT ON public.drivers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v49();
 
 DROP TRIGGER IF EXISTS tr_trips_code ON public.trips;
-CREATE TRIGGER tr_trips_code BEFORE INSERT ON public.trips FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
+CREATE TRIGGER tr_trips_code BEFORE INSERT ON public.trips FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v49();
 
 DROP TRIGGER IF EXISTS tr_customers_code ON public.customers;
-CREATE TRIGGER tr_customers_code BEFORE INSERT ON public.customers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
+CREATE TRIGGER tr_customers_code BEFORE INSERT ON public.customers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v49();
 
 -- 6. PERMISSIONS
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, postgres, service_role;
@@ -124,7 +135,7 @@ NOTIFY pgrst, 'reload schema';`;
       <div className="max-w-2xl w-full bg-gray-950 border border-purple-600/20 rounded-[4rem] p-12 text-center shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-1.5 bg-purple-600 shadow-[0_0_15px_#9333ea]"></div>
         <div className="mb-10 text-left">
-          <h2 className="text-4xl font-black text-white uppercase tracking-tighter mb-2 text-purple-500 leading-none text-center">Protocol V47</h2>
+          <h2 className="text-4xl font-black text-white uppercase tracking-tighter mb-2 text-purple-500 leading-none text-center">Protocol V49</h2>
           <p className="text-gray-600 text-[10px] uppercase tracking-[0.4em] font-black text-center">Global Identity Registry & Sequence Master</p>
         </div>
         <div className="bg-black border border-gray-900 rounded-[2rem] p-6 text-left mb-10 overflow-hidden shadow-inner">
