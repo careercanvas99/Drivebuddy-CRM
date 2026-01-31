@@ -10,7 +10,7 @@ export enum UserRole {
   CUSTOMER = 'Customer'
 }
 
-export type TripStatus = 'unassigned' | 'assigned' | 'started' | 'completed' | 'cancelled';
+export type TripStatus = 'NEW' | 'STARTED' | 'COMPLETED' | 'CANCELLED';
 export type PaymentStatus = 'pending' | 'collected' | 'settled';
 export type PaymentMode = 'cash' | 'online' | 'unpaid';
 
@@ -31,6 +31,7 @@ export interface User {
   name: string;
   mobile?: string;
   address?: string;
+  status: 'Active' | 'Disabled';
 }
 
 export interface Driver {
@@ -43,7 +44,7 @@ export interface Driver {
   address: string;
   permanentAddress: string;
   profilePhoto?: string;
-  status: 'available' | 'busy' | 'inactive';
+  status: 'Available' | 'Busy' | 'Inactive';
   location: [number, number];
 }
 
@@ -65,6 +66,7 @@ export interface Trip {
   pickupLocation: string;
   dropLocation: string;
   tripType: 'one-way' | 'round-trip';
+  tripRoute: 'Instation' | 'Outstation';
   startDateTime: string;
   endDateTime: string;
   status: TripStatus;

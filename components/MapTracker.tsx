@@ -35,7 +35,8 @@ const MapTracker: React.FC<MapTrackerProps> = ({ drivers, center, zoom = 13 }) =
 
     // Add or update markers
     drivers.forEach(driver => {
-      const color = driver.status === 'available' ? '#10b981' : driver.status === 'busy' ? '#3b82f6' : '#6b7280';
+      const statusText = (driver.status || 'available').toLowerCase();
+      const color = statusText === 'available' ? '#10b981' : statusText === 'busy' ? '#3b82f6' : '#6b7280';
       const customIcon = L.divIcon({
         className: 'custom-div-icon',
         html: `<div style="background-color: ${color}; width: 32px; height: 32px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px ${color}; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; font-size: 10px;">${driver.name.charAt(0)}</div>`,
@@ -43,25 +44,21 @@ const MapTracker: React.FC<MapTrackerProps> = ({ drivers, center, zoom = 13 }) =
         iconAnchor: [16, 16]
       });
 
+      const popupContent = `
+          <div style="color: black; font-family: sans-serif;">
+            <b style="text-transform: uppercase;">${driver.name}</b><br/>
+            <span style="font-size: 10px; color: #666;">ID: ${driver.displayId}</span><br/>
+            <span style="font-size: 10px; font-weight: bold; color: ${color};">STATUS: ${statusText.toUpperCase()}</span>
+          </div>
+        `;
+
       if (markersRef.current[driver.id]) {
         markersRef.current[driver.id].setLatLng(driver.location);
         markersRef.current[driver.id].setIcon(customIcon);
-        markersRef.current[driver.id].setPopupContent(`
-          <div style="color: black; font-family: sans-serif;">
-            <b style="text-transform: uppercase;">${driver.name}</b><br/>
-            <span style="font-size: 10px; color: #666;">ID: ${driver.displayId}</span><br/>
-            <span style="font-size: 10px; font-weight: bold; color: ${color};">STATUS: ${driver.status.toUpperCase()}</span>
-          </div>
-        `);
+        markersRef.current[driver.id].setPopupContent(popupContent);
       } else {
         const marker = L.marker(driver.location, { icon: customIcon }).addTo(mapRef.current!);
-        marker.bindPopup(`
-          <div style="color: black; font-family: sans-serif;">
-            <b style="text-transform: uppercase;">${driver.name}</b><br/>
-            <span style="font-size: 10px; color: #666;">ID: ${driver.displayId}</span><br/>
-            <span style="font-size: 10px; font-weight: bold; color: ${color};">STATUS: ${driver.status.toUpperCase()}</span>
-          </div>
-        `);
+        marker.bindPopup(popupContent);
         markersRef.current[driver.id] = marker;
       }
     });

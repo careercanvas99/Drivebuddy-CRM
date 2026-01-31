@@ -28,74 +28,24 @@ const Settings: React.FC<SettingsProps> = ({ settings, setSettings }) => {
     setSettings(prev => ({ ...prev, [name]: value }));
   };
 
-  const sqlSnippet = `-- DRIVEBUDDY PRODUCTION REBUILD SCRIPT (V15 - PERMANENT PK FIX)
--- 0. ENABLE UUID EXTENSION
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+  const sqlSnippet = `-- DRIVEBUDDY CRITICAL SCHEMA REPAIR
+-- 1. PILOT REGISTRY FIXES
+ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS issue_date DATE;
+ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS expiry_date DATE;
+ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS permanent_address TEXT;
 
--- 1. Create/Verify Tables
-CREATE TABLE IF NOT EXISTS public.users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  username TEXT UNIQUE NOT NULL,
-  password TEXT NOT NULL,
-  role TEXT NOT NULL,
-  name TEXT NOT NULL,
-  mobile TEXT,
-  address TEXT,
-  staff_code TEXT UNIQUE,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- 2. MISSION LOG REPAIR
+ALTER TABLE public.trips ADD COLUMN IF NOT EXISTS trip_route TEXT DEFAULT 'Instation';
+ALTER TABLE public.trips ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
 
-CREATE TABLE IF NOT EXISTS public.drivers (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  license_number TEXT UNIQUE NOT NULL,
-  issue_date DATE,
-  expiry_date DATE,
-  address TEXT,
-  status TEXT DEFAULT 'available',
-  location_lat FLOAT8,
-  location_lng FLOAT8,
-  driver_code TEXT UNIQUE,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS public.customers (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  mobile TEXT UNIQUE NOT NULL,
-  home_address TEXT,
-  office_address TEXT,
-  vehicle_model TEXT DEFAULT 'Standard',
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS public.trips (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  customer_id UUID REFERENCES public.customers(id),
-  driver_id UUID REFERENCES public.drivers(id),
-  pickup_location TEXT NOT NULL,
-  drop_location TEXT NOT NULL,
-  trip_type TEXT NOT NULL,
-  start_date_time TIMESTAMPTZ,
-  end_date_time TIMESTAMPTZ,
-  status TEXT DEFAULT 'unassigned',
-  bill_amount FLOAT8,
-  trip_code TEXT UNIQUE,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 2. REPAIR PRIMARY KEY DEFAULTS
--- Ensures existing tables auto-generate IDs, fixing the "null value" insert error.
+-- 3. ENSURE UUID AUTO-GEN
 ALTER TABLE public.users ALTER COLUMN id SET DEFAULT gen_random_uuid();
 ALTER TABLE public.drivers ALTER COLUMN id SET DEFAULT gen_random_uuid();
 ALTER TABLE public.customers ALTER COLUMN id SET DEFAULT gen_random_uuid();
 ALTER TABLE public.trips ALTER COLUMN id SET DEFAULT gen_random_uuid();
 
--- 3. ALIGN OPTIONAL COLUMNS
-ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS vehicle_model TEXT DEFAULT 'Standard';
-ALTER TABLE public.trips ADD COLUMN IF NOT EXISTS trip_code TEXT UNIQUE;
-
--- 4. CRITICAL: FORCE SCHEMA RELOAD
+-- 4. REFRESH API CACHE
 NOTIFY pgrst, 'reload schema';`;
 
   const copySql = () => {
@@ -174,13 +124,13 @@ NOTIFY pgrst, 'reload schema';`;
         <div className="flex items-center gap-4 text-orange-500">
           <div className="p-3 bg-orange-500/10 rounded-2xl">{ICONS.Reports}</div>
           <div>
-            <h3 className="text-xl font-black uppercase tracking-tighter">ID Constraint Recovery</h3>
-            <p className="text-xs text-orange-500/60 uppercase font-bold tracking-widest">PostgreSQL Primary Key Repair</p>
+            <h3 className="text-xl font-black uppercase tracking-tighter">Schema Constraint Recovery</h3>
+            <p className="text-xs text-orange-500/60 uppercase font-bold tracking-widest">Force Column Verification</p>
           </div>
         </div>
         
         <p className="text-sm text-gray-400 leading-relaxed">
-          If you encounter <span className="text-white font-mono text-[11px]">"null value in column id violates not-null"</span>, use the repair script below. It updates existing tables to auto-generate UUIDs.
+          If you encounter <span className="text-white font-mono text-[11px]">"column does not exist"</span> or cache errors, use the repair script below. It forces all required pilot and trip columns into existence and reloads the API cache.
         </p>
 
         <div className="relative group">
@@ -191,7 +141,7 @@ NOTIFY pgrst, 'reload schema';`;
             onClick={copySql}
             className="absolute top-4 right-4 bg-gray-800 hover:bg-white hover:text-black px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
           >
-            {copyStatus === 'copied' ? 'SQL Copied' : 'Copy ID Repair SQL'}
+            {copyStatus === 'copied' ? 'SQL Copied' : 'Copy Repair SQL'}
           </button>
         </div>
       </div>

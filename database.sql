@@ -1,14 +1,5 @@
 
-import React, { useState } from 'react';
-
-interface SetupWizardProps {
-  onRetry: () => void;
-}
-
-const SetupWizard: React.FC<SetupWizardProps> = ({ onRetry }) => {
-  const [copyStatus, setCopyStatus] = useState(false);
-
-  const sqlScript = `-- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE SCRIPT V45
+-- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE SCRIPT V46
 -- TARGET: Unified Identity Management & Global Credential Registry
 
 -- 1. ENABLE EXTENSIONS
@@ -27,10 +18,10 @@ CREATE TABLE IF NOT EXISTS public.users (
     username TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
     name TEXT NOT NULL,
-    role TEXT NOT NULL,
+    role TEXT NOT NULL, -- Admin, Customer, Driver, Ops-Manager, Finance, etc.
     mobile TEXT,
     address TEXT,
-    status TEXT DEFAULT 'Active',
+    status TEXT DEFAULT 'Active', -- Active / Disabled
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -79,7 +70,11 @@ CREATE TABLE IF NOT EXISTS public.trips (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 4. FAIL-SAFE COLUMN REPAIR
+-- 4. V46 CREDENTIAL SYNC PROTOCOL UPDATES
+CREATE INDEX IF NOT EXISTS idx_users_username ON public.users(username);
+CREATE INDEX IF NOT EXISTS idx_customers_mobile ON public.customers(mobile_number);
+
+-- 5. FAIL-SAFE COLUMN REPAIR
 DO $$ 
 BEGIN 
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='status') THEN
@@ -90,7 +85,7 @@ BEGIN
     END IF;
 END $$;
 
--- 5. BUSINESS ID GENERATION LOGIC
+-- 6. BUSINESS ID GENERATION LOGIC
 CREATE OR REPLACE FUNCTION public.fn_generate_business_id_v45() RETURNS TRIGGER AS $$
 BEGIN
   IF TG_TABLE_NAME = 'users' AND (NEW.staff_code IS NULL OR NEW.staff_code = '') THEN
@@ -106,7 +101,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- 6. ATTACH TRIGGERS
+-- 7. ATTACH TRIGGERS
 DROP TRIGGER IF EXISTS tr_users_code ON public.users;
 CREATE TRIGGER tr_users_code BEFORE INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v45();
 
@@ -119,41 +114,12 @@ CREATE TRIGGER tr_trips_code BEFORE INSERT ON public.trips FOR EACH ROW EXECUTE 
 DROP TRIGGER IF EXISTS tr_customers_code ON public.customers;
 CREATE TRIGGER tr_customers_code BEFORE INSERT ON public.customers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v45();
 
--- 7. PERMISSIONS
+-- 8. INITIAL DATA RESET (Gopal's Verified Credentials)
+DELETE FROM public.users WHERE username = '9876543210';
+INSERT INTO public.users (name, username, password, role, status) 
+VALUES ('Gopal', '9876543210', 'Gopal@123', 'Customer', 'Active');
+
+-- 9. PERMISSIONS
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, postgres, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, postgres, service_role;
-NOTIFY pgrst, 'reload schema';`;
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(sqlScript);
-    setCopyStatus(true);
-    setTimeout(() => setCopyStatus(false), 2000);
-  };
-
-  return (
-    <div className="h-screen bg-black flex items-center justify-center p-6">
-      <div className="max-w-2xl w-full bg-gray-950 border border-purple-600/20 rounded-[4rem] p-12 text-center shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-1.5 bg-purple-600 shadow-[0_0_15px_#9333ea]"></div>
-        <div className="mb-10 text-left">
-          <h2 className="text-4xl font-black text-white uppercase tracking-tighter mb-2 text-purple-500 leading-none text-center">Protocol V45</h2>
-          <p className="text-gray-600 text-[10px] uppercase tracking-[0.4em] font-black text-center">Global Identity Registry & Permissions</p>
-        </div>
-        <div className="bg-black border border-gray-900 rounded-[2rem] p-6 text-left mb-10 overflow-hidden shadow-inner">
-           <pre className="text-[9px] font-mono text-emerald-400 overflow-y-auto max-h-56 leading-relaxed custom-scrollbar">
-             {sqlScript}
-           </pre>
-        </div>
-        <div className="space-y-4">
-          <button onClick={handleCopy} className="w-full bg-gray-900 text-white hover:bg-purple-600 border border-gray-800 py-5 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all">
-            {copyStatus ? 'SQL Copied' : 'Copy Registry SQL'}
-          </button>
-          <button onClick={onRetry} className="w-full bg-white text-black py-5 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all shadow-xl hover:bg-purple-50 text-purple-600">
-            Refresh & Validate
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default SetupWizard;
+NOTIFY pgrst, 'reload schema';

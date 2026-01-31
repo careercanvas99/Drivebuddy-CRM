@@ -36,7 +36,8 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ user, trips, cust
 
   const myCustomerProfile = customers.find(c => c.mobile === user.username || c.mobile === user.mobile);
   const myTrips = trips.filter(t => t.customerId === myCustomerProfile?.id);
-  const activeTrip = myTrips.find(t => t.status !== 'completed' && t.status !== 'cancelled');
+  // Fix: Comparing against 'COMPLETED' and 'CANCELLED' to match TripStatus definition
+  const activeTrip = myTrips.find(t => t.status !== 'COMPLETED' && t.status !== 'CANCELLED');
 
   useEffect(() => {
     if (!activeTrip?.driverId) {
@@ -61,7 +62,7 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ user, trips, cust
           expiryDate: data.expiry_date,
           address: data.address || '',
           permanentAddress: data.permanent_address || '',
-          status: data.status || 'available',
+          status: data.status || 'Available',
           location: [data.location_lat || 12.9716, data.location_lng || 77.5946]
         });
       }
@@ -126,6 +127,7 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ user, trips, cust
 
       if (tripData) {
         const t = tripData as any;
+        // Fix: Added missing tripRoute property to satisfy Trip interface
         const mappedTrip: Trip = {
             id: t.id,
             displayId: t.trip_code, 
@@ -133,6 +135,7 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ user, trips, cust
             pickupLocation: t.pickup_location,
             dropLocation: t.drop_location,
             tripType: t.trip_type,
+            tripRoute: t.trip_route || 'Instation',
             startDateTime: t.start_time,
             endDateTime: t.end_time,
             status: t.trip_status as any
@@ -157,7 +160,8 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ user, trips, cust
     if (trip.startDateTime) {
       currentBill = calculateFareInternal(
         new Date(trip.startDateTime),
-        trip.status === 'completed' ? new Date(trip.endDateTime) : new Date(),
+        // Fix: Comparing against 'COMPLETED' to match TripStatus definition
+        trip.status === 'COMPLETED' ? new Date(trip.endDateTime) : new Date(),
         "No", "Instation", trip.tripType === 'one-way' ? "One Way" : "Round Trip"
       );
     }
@@ -177,7 +181,8 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ user, trips, cust
                 <span className="px-3 py-1 bg-purple-600/20 text-purple-400 rounded-lg text-[10px] font-black uppercase tracking-widest">{trip.status}</span>
             </div>
 
-            {trackingDriver && trip.status === 'started' && (
+            {/* Fix: Comparing against 'STARTED' to match TripStatus definition */}
+            {trackingDriver && trip.status === 'STARTED' && (
               <div className="h-64 rounded-3xl overflow-hidden border border-gray-800 shadow-inner">
                 <MapTracker drivers={[trackingDriver]} zoom={15} />
               </div>
@@ -195,7 +200,8 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ user, trips, cust
 
             {currentBill && (
               <div className="bg-purple-900/10 border-2 border-purple-500/20 p-8 rounded-[2rem] text-center shadow-inner">
-                <p className="text-xs text-purple-400 uppercase font-black mb-1 tracking-widest">{trip.status === 'completed' ? 'Final Invoice' : 'Real-time Estimate'}</p>
+                {/* Fix: Comparing against 'COMPLETED' to match TripStatus definition */}
+                <p className="text-xs text-purple-400 uppercase font-black mb-1 tracking-widest">{trip.status === 'COMPLETED' ? 'Final Invoice' : 'Real-time Estimate'}</p>
                 <h4 className="text-5xl font-black text-white">₹ {currentBill.totalPrice}</h4>
                 <p className="text-[10px] text-gray-500 mt-2 italic font-medium uppercase tracking-tighter">({currentBill.hours}h {currentBill.mins}m Duration)</p>
               </div>
@@ -271,7 +277,8 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ user, trips, cust
                      {trip.billAmount && (
                        <span className="text-emerald-500 font-black text-sm">₹{trip.billAmount}</span>
                      )}
-                     {trip.status === 'completed' && (
+                     {/* Fix: Comparing against 'COMPLETED' to match TripStatus definition */}
+                     {trip.status === 'COMPLETED' && (
                        <button 
                          onClick={(e) => { e.stopPropagation(); handleDownloadInvoice(trip); }} 
                          className="text-[8px] font-black text-purple-400 hover:text-white uppercase tracking-widest"

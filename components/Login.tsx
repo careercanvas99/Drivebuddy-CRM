@@ -33,9 +33,8 @@ const Login: React.FC<LoginProps> = ({ onLogin, isCloudReachable, onRetry }) => 
         .maybeSingle();
 
       if (error) {
-        // PostgREST Schema cache error
         if (error.code === 'PGRST205') {
-          setErrorMessage("DATABASE SYNC ERROR: Supabase has not yet refreshed its API cache. Please wait 10 seconds and try again, or re-run the Setup Script.");
+          setErrorMessage("DATABASE SYNC ERROR: Supabase has not yet refreshed its API cache.");
         } else {
           setErrorMessage(`API ERROR [${error.code}]: ${error.message}`);
         }
@@ -43,7 +42,12 @@ const Login: React.FC<LoginProps> = ({ onLogin, isCloudReachable, onRetry }) => 
       }
 
       if (!data) {
-        setErrorMessage("ACCESS DENIED: Username or Password incorrect. Default is 'admin' / 'password'.");
+        setErrorMessage("ACCESS DENIED: Credentials incorrect.");
+        return;
+      }
+
+      if (data.status === 'Disabled') {
+        setErrorMessage("PROTOCOL REVOKED: This account has been disabled by Administrator.");
         return;
       }
 
@@ -65,7 +69,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, isCloudReachable, onRetry }) => 
           <div className="inline-flex p-4 rounded-3xl bg-purple-600/5 border border-purple-500/10 mb-6">
              <div className="w-3 h-3 bg-purple-500 rounded-full animate-pulse shadow-[0_0_20px_#a855f7]"></div>
           </div>
-          <h1 className="text-3xl font-black text-white mb-1 tracking-tighter uppercase leading-none">Drivebuddy</h1>
+          <h1 className="text-3xl font-black text-white mb-1 tracking-tighter uppercase leading-none italic">Drivebuddy</h1>
           <p className="text-gray-600 text-[10px] font-black uppercase tracking-[0.4em]">Infrastructure V4.0</p>
         </div>
 

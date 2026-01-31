@@ -12,7 +12,8 @@ interface FinanceReportsProps {
 }
 
 const FinanceReports: React.FC<FinanceReportsProps> = ({ trips, drivers, customers, companySettings }) => {
-  const completedTrips = trips.filter(t => t.status === 'completed');
+  // Fix: Comparing against 'COMPLETED' to match TripStatus definition
+  const completedTrips = trips.filter(t => t.status === 'COMPLETED');
   const totalRevenue = completedTrips.reduce((acc, t) => acc + (t.billAmount || 0), 0);
 
   const handleDownloadInvoice = (trip: Trip) => {

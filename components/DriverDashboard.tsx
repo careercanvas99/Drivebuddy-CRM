@@ -4,7 +4,6 @@ import { User, Trip, Driver, TripStatus, CompanySettings, PaymentMode } from '..
 import { ICONS } from '../constants.tsx';
 import { calculateFareInternal } from './TripEstimation.tsx';
 import { supabase } from '../lib/supabase.js';
-import { generatePDFInvoice } from '../services/InvoiceService.ts';
 
 interface DriverDashboardProps {
   user: User;
@@ -27,34 +26,42 @@ const DriverDashboard: React.FC<DriverDashboardProps> = ({ user, trips, setTrips
 
   const currentDriver = drivers.find(d => d.id === user.id);
   const myTrips = trips.filter(t => t.driverId === currentDriver?.id);
-  const myActiveTrip = myTrips.find(t => (t.status === 'assigned' || t.status === 'started'));
-  const myCompletedTrips = myTrips.filter(t => t.status === 'completed');
-  const myAssignedTrips = myTrips.filter(t => t.status === 'assigned');
+  const myActiveTrip = myTrips.find(t => (t.status === 'NEW' && t.driverId === user.id) || t.status === 'STARTED');
+  const myCompletedTrips = myTrips.filter(t => t.status === 'COMPLETED');
+  const myAssignedTrips = myTrips.filter(t => t.status === 'NEW' && t.driverId === user.id);
 
-  // Location Tracking & Sync
+  // REAL-TIME LOCATION TRACKING (STRICT SQL SYNC)
   useEffect(() => {
     if (!currentDriver) return;
 
     const watchId = navigator.geolocation.watchPosition(
       async (pos) => {
         const { latitude, longitude } = pos.coords;
+        
+        // Update Local State for immediate UI feedback
         setDrivers(prev => prev.map(d => 
           d.id === currentDriver.id ? { ...d, location: [latitude, longitude] } : d
         ));
         
-        if (myActiveTrip?.status === 'started') {
-           await supabase.from('drivers').update({
-             location_lat: latitude,
-             location_lng: longitude
-           } as any).eq('id', currentDriver.id);
-        }
+        // PERSIST TO SQL: driver_locations table
+        await supabase.from('driver_locations').insert([{
+          driver_id: currentDriver.id,
+          latitude,
+          longitude
+        }]);
+
+        // Update driver's main coordinates
+        await supabase.from('drivers').update({
+          location_lat: latitude,
+          location_lng: longitude
+        } as any).eq('id', currentDriver.id);
       },
-      (err) => console.error("Tracking Error:", err),
+      (err) => console.error("Location Tracking Violation:", err),
       { enableHighAccuracy: true }
     );
 
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [myActiveTrip?.status, currentDriver?.id]);
+  }, [currentDriver?.id]);
 
   const startCamera = async () => {
     setCapturedImage(null);
@@ -84,7 +91,7 @@ const DriverDashboard: React.FC<DriverDashboardProps> = ({ user, trips, setTrips
     setIsUpdating(true);
 
     const isStarting = activeSelfieType === 'start';
-    const newStatus: TripStatus = isStarting ? 'started' : 'completed';
+    const newStatus: TripStatus = isStarting ? 'STARTED' : 'COMPLETED';
     const now = new Date().toISOString();
     
     try {
@@ -100,26 +107,19 @@ const DriverDashboard: React.FC<DriverDashboardProps> = ({ user, trips, setTrips
         dbUpdates.payment_mode = paymentMode;
       }
 
+      // SQL SYNC: Update Manifest
       const { error } = await supabase.from('trips').update(dbUpdates).eq('id', myActiveTrip.id);
       if (error) throw error;
 
-      const newDriverStatus = isStarting ? 'busy' : 'available';
+      // SQL SYNC: Update Pilot Status
+      const newDriverStatus = isStarting ? 'Busy' : 'Available';
       await supabase.from('drivers').update({ status: newDriverStatus } as any).eq('id', currentDriver?.id);
-
-      setTrips(prev => prev.map(t => t.id === myActiveTrip.id ? { 
-        ...t, 
-        status: newStatus,
-        startDateTime: isStarting ? now : t.startDateTime,
-        endDateTime: isStarting ? t.endDateTime : now,
-        billAmount: isStarting ? t.billAmount : dbUpdates.bill_amount,
-        paymentStatus: 'pending',
-        paymentMode: isStarting ? undefined : paymentMode
-      } : t));
 
       setActiveSelfieType(null);
       setCapturedImage(null);
+      alert(`Manifest Update Synchronized: ${newStatus}`);
     } catch (err: any) {
-      alert(`Manifest Update Failed: ${err.message}`);
+      alert(`Manifest Update Failure: ${err.message}`);
     } finally {
       setIsUpdating(false);
     }
@@ -137,7 +137,7 @@ const DriverDashboard: React.FC<DriverDashboardProps> = ({ user, trips, setTrips
         </div>
       </nav>
 
-      <main className="flex-1 p-6 max-w-md mx-auto w-full">
+      <main className="flex-1 p-6 max-md mx-auto w-full">
         <div className="flex bg-gray-900 p-1.5 rounded-2xl mb-8 border border-gray-800 shadow-inner">
           <button onClick={() => setView('terminal')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${view === 'terminal' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-500'}`}>Terminal</button>
           <button onClick={() => setView('missions')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${view === 'missions' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-500'}`}>Missions</button>
@@ -148,14 +148,14 @@ const DriverDashboard: React.FC<DriverDashboardProps> = ({ user, trips, setTrips
           <div className="space-y-6 animate-in slide-in-from-left duration-500">
             <div className="bg-gray-900 border border-gray-800 rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden group">
               <div className="absolute top-0 left-0 w-full h-1 bg-purple-600 shadow-[0_0_10px_#9333ea]"></div>
-              <h2 className="text-3xl font-black mb-1">Status: {currentDriver?.status.toUpperCase()}</h2>
+              <h2 className="text-3xl font-black mb-1">Status: {(currentDriver?.status || 'Available').toUpperCase()}</h2>
               <p className="text-[10px] text-purple-500 font-black uppercase tracking-widest mb-6">ID: {user.displayId}</p>
               
               {myActiveTrip ? (
                 <div className="space-y-6">
                   <div className="bg-black/50 p-6 rounded-3xl border border-gray-800 shadow-inner">
                     <p className="text-[10px] text-gray-500 uppercase font-black mb-4 tracking-widest flex items-center gap-2">
-                       <span className={`w-1.5 h-1.5 rounded-full ${myActiveTrip.status === 'started' ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'} `}></span> {myActiveTrip.status.toUpperCase()} MANIFEST
+                       <span className={`w-1.5 h-1.5 rounded-full ${myActiveTrip.status === 'STARTED' ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'} `}></span> {(myActiveTrip.status || 'NEW').toUpperCase()} MANIFEST
                     </p>
                     <div className="space-y-4 mb-8">
                         <div>
@@ -165,10 +165,10 @@ const DriverDashboard: React.FC<DriverDashboardProps> = ({ user, trips, setTrips
                     </div>
 
                     <button 
-                      onClick={() => { setActiveSelfieType(myActiveTrip.status === 'assigned' ? 'start' : 'end'); startCamera(); }}
-                      className={`w-full py-5 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2 ${myActiveTrip.status === 'assigned' ? 'bg-emerald-600' : 'bg-blue-600'}`}
+                      onClick={() => { setActiveSelfieType(myActiveTrip.status === 'NEW' ? 'start' : 'end'); startCamera(); }}
+                      className={`w-full py-5 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2 ${myActiveTrip.status === 'NEW' ? 'bg-emerald-600' : 'bg-blue-600'}`}
                     >
-                      {ICONS.Camera} Authenticate {myActiveTrip.status === 'assigned' ? 'Trip Start' : 'Complete Trip'}
+                      {ICONS.Camera} Authenticate {myActiveTrip.status === 'NEW' ? 'Trip Start' : 'Complete Trip'}
                     </button>
                   </div>
                 </div>

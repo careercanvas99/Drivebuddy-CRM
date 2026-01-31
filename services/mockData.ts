@@ -2,11 +2,21 @@
 import { User, UserRole, Driver, Customer, Trip } from '../types.ts';
 
 export const mockUsers: User[] = [
-  { id: '1', displayId: 'DBDY-HYD-001', username: 'admin', password: 'password', role: UserRole.ADMIN, name: 'Main Admin', mobile: '+91 99999 99999', address: 'Drivebuddy HQ, Bangalore' },
-  { id: '2', displayId: 'DBDY-HYD-002', username: 'ops1', password: 'password', role: UserRole.OPS_MANAGER, name: 'Suresh Kumar', mobile: '+91 88888 88888' },
-  { id: '3', displayId: 'DBDY-HYD-003', username: 'fin1', password: 'password', role: UserRole.FINANCE, name: 'Megha Singh', mobile: '+91 77777 77777' },
-  { id: '4', displayId: 'DBDY-HYD-DR-004', username: 'Rajesh Driver', password: 'password', role: UserRole.DRIVER, name: 'Rajesh Khanna', mobile: '+91 66666 66666' },
-  { id: '5', displayId: 'DBDY-HYD-DR-005', username: 'Rajesh Driver 2', password: 'password', role: UserRole.DRIVER, name: 'Rajesh Khanna', mobile: '+91 66666 66666' },
+  { id: '1', displayId: 'DBDY-HYD-001', username: 'admin', password: 'password', role: UserRole.ADMIN, name: 'Main Admin', mobile: '+91 99999 99999', address: 'Drivebuddy HQ, Bangalore', status: 'Active' },
+  { id: '2', displayId: 'DBDY-HYD-002', username: 'ops1', password: 'password', role: UserRole.OPS_MANAGER, name: 'Suresh Kumar', mobile: '+91 88888 88888', status: 'Active' },
+  { id: '3', displayId: 'DBDY-HYD-003', username: 'fin1', password: 'password', role: UserRole.FINANCE, name: 'Megha Singh', mobile: '+91 77777 77777', status: 'Active' },
+  { id: '4', displayId: 'DBDY-HYD-DR-004', username: 'Rajesh Driver', password: 'password', role: UserRole.DRIVER, name: 'Rajesh Khanna', mobile: '+91 66666 66666', status: 'Active' },
+  // Gopal's Verified Login Credentials (V46)
+  { 
+    id: '6', 
+    displayId: 'DBDY-HYD-CUST-006', 
+    username: '9876543210', 
+    password: 'Gopal@123', 
+    role: UserRole.CUSTOMER, 
+    name: 'Gopal', 
+    mobile: '9876543210', 
+    status: 'Active' 
+  },
 ];
 
 export const mockDrivers: Driver[] = [
@@ -16,10 +26,10 @@ export const mockDrivers: Driver[] = [
     name: 'Rajesh Khanna',
     licenseNumber: 'DL-1420210012345',
     issueDate: '2021-01-15',
-    expiryDate: '2025-04-10', // Near expiry
+    expiryDate: '2025-04-10',
     address: 'H-23, Lajpat Nagar, New Delhi',
     permanentAddress: 'Village Mohana, Haryana',
-    status: 'available',
+    status: 'Available',
     location: [12.9716, 77.5946]
   },
   {
@@ -31,20 +41,8 @@ export const mockDrivers: Driver[] = [
     expiryDate: '2032-03-20',
     address: 'Flat 402, Lotus Apts, Bangalore',
     permanentAddress: 'Jodhpur, Rajasthan',
-    status: 'available',
+    status: 'Available',
     location: [12.9352, 77.6245]
-  },
-  {
-    id: 'DRV-103',
-    displayId: 'DBDY-HYD-DR-103',
-    name: 'Amit Patel',
-    licenseNumber: 'GJ-0520230044556',
-    issueDate: '2023-05-10',
-    expiryDate: '2033-05-10',
-    address: 'Sector 4, HSR Layout, Bangalore',
-    permanentAddress: 'Ahmedabad, Gujarat',
-    status: 'busy',
-    location: [12.9141, 77.6412]
   }
 ];
 
@@ -59,13 +57,13 @@ export const mockCustomers: Customer[] = [
     vehicleModel: 'Tata Harrier (Dark Edition)'
   },
   {
-    id: 'CUST-002',
-    displayId: 'CUST-002',
-    name: 'Priya Sharma',
-    mobile: '+91 88776 65544',
-    homeAddress: 'Indiranagar 100ft Road',
-    officeAddress: 'Embassy Golf Links, Domlur',
-    vehicleModel: 'BMW 3 Series'
+    id: 'CUST-003',
+    displayId: 'CUST-003',
+    name: 'Gopal',
+    mobile: '9876543210',
+    homeAddress: 'Jubilee Hills, Hyderabad',
+    officeAddress: 'Cyber Towers, HITEC City',
+    vehicleModel: 'Toyota Fortuner'
   }
 ];
 
@@ -78,20 +76,10 @@ export const mockTrips: Trip[] = [
     pickupLocation: 'Whitefield',
     dropLocation: 'Bangalore Airport',
     tripType: 'one-way',
+    tripRoute: 'Instation',
     startDateTime: '2023-11-20T10:00',
     endDateTime: '2023-11-20T11:30',
-    status: 'completed',
+    status: 'COMPLETED',
     billAmount: 1200
-  },
-  {
-    id: 'TRIP-4502',
-    displayId: 'TRIP-4502',
-    customerId: 'CUST-002',
-    pickupLocation: 'Indiranagar',
-    dropLocation: 'Mysore Road',
-    tripType: 'one-way',
-    startDateTime: new Date(Date.now() + 2 * 3600 * 1000).toISOString(),
-    endDateTime: '',
-    status: 'unassigned'
   }
 ];

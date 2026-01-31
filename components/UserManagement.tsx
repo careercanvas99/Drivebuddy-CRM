@@ -21,18 +21,18 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, curren
     username: '',
     password: '',
     role: UserRole.OPERATION_EXECUTIVE,
-    displayId: ''
+    staffCode: '',
+    status: 'Active' as 'Active' | 'Disabled'
   });
 
-  const isAdmin = currentUser.role === UserRole.ADMIN;
-
-  if (!isAdmin) {
+  if (currentUser.role !== UserRole.ADMIN) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center p-12 bg-gray-900 border border-red-500/20 rounded-3xl">
-          <h2 className="text-2xl font-black text-red-500 mb-2">ACCESS DENIED</h2>
-          <p className="text-gray-400">Administrative clearance required for this module.</p>
+      <div className="h-[60vh] flex flex-col items-center justify-center space-y-4">
+        <div className="text-red-500 bg-red-500/10 p-6 rounded-[2rem] border border-red-500/20">
+          {ICONS.Cancel}
         </div>
+        <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Access Denied</h2>
+        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Level 1 Admin Clearances Required</p>
       </div>
     );
   }
@@ -41,120 +41,54 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, curren
     e.preventDefault();
     setIsSubmitting(true);
     
-    // Clean data for SQL: Empty string should be undefined to let DB triggers work
-    const staffCode = formData.displayId && formData.displayId.trim() !== '' ? formData.displayId : undefined;
-
     try {
-      if (editingUser) {
-        // SQL PROTOCOL: Update Registry
-        const { data, error } = await supabase
-          .from('users')
-          .update({
-            name: formData.name,
-            mobile: formData.mobile,
-            address: formData.address,
-            username: formData.username.toLowerCase().trim(),
-            password: formData.password,
-            role: formData.role,
-            staff_code: staffCode
-          } as any)
-          .eq('id', editingUser.id)
-          .select()
-          .single();
-        
-        if (error) throw error;
+      const payload: any = {
+        name: formData.name,
+        mobile: formData.mobile,
+        address: formData.address,
+        username: formData.username.trim().toLowerCase(),
+        password: formData.password,
+        role: formData.role,
+        staff_code: formData.staffCode || undefined,
+        status: formData.status
+      };
 
-        if (data) {
-          const u = data as any;
-          const updatedUser: User = {
-            id: u.id,
-            displayId: u.staff_code,
-            username: u.username,
-            password: u.password,
-            role: u.role as UserRole,
-            name: u.name,
-            mobile: u.mobile,
-            address: u.address
-          };
-          setUsers(prev => prev.map(usr => usr.id === editingUser.id ? updatedUser : usr));
-          alert('Staff Registry Synchronized.');
-        }
-      } else {
-        // SQL PROTOCOL: Register Operator
-        const { data, error } = await supabase
-          .from('users')
-          .insert([{
-            name: formData.name,
-            mobile: formData.mobile,
-            address: formData.address,
-            username: formData.username.toLowerCase().trim(),
-            password: formData.password,
-            role: formData.role,
-            staff_code: staffCode 
-          } as any])
-          .select()
-          .single();
-        
+      if (editingUser) {
+        const { error } = await supabase.from('users').update(payload).eq('id', editingUser.id);
         if (error) throw error;
-        
-        if (data) {
-             const u = data as any;
-             const newUser: User = {
-                 id: u.id,
-                 displayId: u.staff_code,
-                 username: u.username,
-                 password: u.password,
-                 role: u.role as UserRole,
-                 name: u.name,
-                 mobile: u.mobile,
-                 address: u.address
-             };
-             setUsers(prev => [...prev, newUser]);
-             alert(`Staff Account Registered: ${u.staff_code}`);
-        }
+        alert('User credentials synchronized.');
+      } else {
+        const { error } = await supabase.from('users').insert([payload]);
+        if (error) throw error;
+        alert('New account commissioned successfully.');
       }
-      
       setShowModal(false);
       setEditingUser(null);
-      setFormData({ 
-        name: '', 
-        mobile: '', 
-        address: '', 
-        username: '', 
-        password: '', 
-        role: UserRole.OPERATION_EXECUTIVE,
-        displayId: ''
-      });
     } catch (err: any) {
-      alert(`Staff Sync Error: ${err.message}`);
+      alert(`Account Sync Error: ${err.message}`);
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const handleEdit = (user: User) => {
-    setEditingUser(user);
-    setFormData({
-      name: user.name,
-      mobile: user.mobile || '',
-      address: user.address || '',
-      username: user.username,
-      password: user.password || '',
-      role: user.role,
-      displayId: user.displayId
-    });
-    setShowModal(true);
-  };
+  }
 
   const handleDelete = async (id: string) => {
-    if (confirm('DANGER: Terminate operator credentials permanently?')) {
-      try {
-        const { error } = await supabase.from('users').delete().eq('id', id);
-        if (error) throw error;
-        setUsers(prev => prev.filter(u => u.id !== id));
-      } catch (err: any) {
-        alert(`Deletion Error: ${err.message}`);
-      }
+    if (!confirm('DANGER: Terminate all access for this user? This cannot be undone.')) return;
+    try {
+      const { error } = await supabase.from('users').delete().eq('id', id);
+      if (error) throw error;
+      alert('Credentials purged from registry.');
+    } catch (err: any) {
+      alert(`Purge Error: ${err.message}`);
+    }
+  };
+
+  const toggleUserStatus = async (user: User) => {
+    const newStatus = user.status === 'Active' ? 'Disabled' : 'Active';
+    try {
+      const { error } = await supabase.from('users').update({ status: newStatus }).eq('id', user.id);
+      if (error) throw error;
+    } catch (err: any) {
+      alert(`Status Toggle Fail: ${err.message}`);
     }
   };
 
@@ -162,14 +96,18 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, curren
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Staff Hub</h2>
-          <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-1">Operator Registry & Access Policy</p>
+          <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Credential Registry</h2>
+          <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-1">Global Account Management (Staff & Clients)</p>
         </div>
         <button 
-          onClick={() => { setEditingUser(null); setShowModal(true); setFormData({ name: '', mobile: '', address: '', username: '', password: '', role: UserRole.OPERATION_EXECUTIVE, displayId: '' }); }}
+          onClick={() => { 
+            setEditingUser(null); 
+            setShowModal(true); 
+            setFormData({ name: '', mobile: '', address: '', username: '', password: '', role: UserRole.OPERATION_EXECUTIVE, staffCode: '', status: 'Active' }); 
+          }}
           className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-2xl flex items-center gap-2 font-black text-xs uppercase tracking-widest transition-all shadow-xl shadow-purple-900/40"
         >
-          {ICONS.Plus} Register Operator
+          {ICONS.Plus} Create Login Account
         </button>
       </div>
 
@@ -177,47 +115,59 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, curren
         <table className="w-full text-left text-sm">
           <thead className="bg-black text-gray-600 border-b border-gray-900 font-black uppercase text-[9px] tracking-widest">
             <tr>
-              <th className="p-6">Operator / Business ID</th>
-              <th className="p-6">Secure Contact</th>
-              <th className="p-6">Access Level</th>
-              <th className="p-6">Uplink</th>
+              <th className="p-6">User / Identity</th>
+              <th className="p-6">Role</th>
+              <th className="p-6">Login ID (Username)</th>
+              <th className="p-6 text-center">Gateway Status</th>
               <th className="p-6 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-900">
-            {users.filter(u => u.role !== UserRole.CUSTOMER).map(u => (
+            {users.map(u => (
               <tr key={u.id} className="hover:bg-gray-900/40 transition-colors group">
                 <td className="p-6">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-gray-900 flex items-center justify-center text-sm font-black text-purple-500 border border-gray-800">
-                      {u.name.charAt(0)}
-                    </div>
-                    <div>
-                      <div className="font-bold text-white">{u.name}</div>
-                      <div className="text-[10px] text-purple-500 font-mono font-bold tracking-widest">{u.displayId}</div>
-                    </div>
-                  </div>
+                   <div className="font-bold text-white">{u.name}</div>
+                   <div className="text-[10px] text-purple-500 font-mono font-bold tracking-widest">{u.displayId || 'DBDY-EXT-ACC'}</div>
                 </td>
                 <td className="p-6">
-                  <div className="text-gray-300 text-xs font-medium">{u.mobile || '---'}</div>
-                  <div className="text-[9px] text-gray-600 font-bold uppercase tracking-tighter truncate max-w-[150px]">{u.address || 'Location withheld'}</div>
-                </td>
-                <td className="p-6">
-                  <span className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${
-                    u.role === UserRole.ADMIN ? 'bg-purple-900/40 text-purple-400 border border-purple-500/20 shadow-[0_0_10px_#9333ea20]' : 'bg-gray-900 text-gray-500 border border-gray-800'
+                  <span className={`px-2 py-1 rounded text-[9px] font-black uppercase border ${
+                    u.role === UserRole.ADMIN ? 'bg-purple-900/20 text-purple-400 border-purple-500/20' :
+                    u.role === UserRole.CUSTOMER ? 'bg-blue-900/20 text-blue-400 border-blue-500/20' :
+                    'bg-gray-900 text-gray-400 border-gray-800'
                   }`}>
                     {u.role}
                   </span>
                 </td>
                 <td className="p-6 text-gray-400 font-mono text-xs">{u.username}</td>
+                <td className="p-6 text-center">
+                  <button 
+                    onClick={() => toggleUserStatus(u)}
+                    className={`px-3 py-1.5 rounded-xl text-[8px] font-black uppercase tracking-widest transition-all border ${
+                      u.status === 'Active' 
+                        ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20 hover:bg-emerald-500 hover:text-white' 
+                        : 'bg-red-500/10 text-red-500 border-red-500/20 hover:bg-red-500 hover:text-white'
+                    }`}
+                  >
+                    {u.status}
+                  </button>
+                </td>
                 <td className="p-6 text-right">
                   <div className="flex justify-end gap-3 opacity-40 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => handleEdit(u)} className="p-2.5 bg-gray-900 rounded-xl text-blue-500 hover:text-white transition-all shadow-sm" title="Modify Registry">
-                      {ICONS.Edit}
-                    </button>
-                    <button onClick={() => handleDelete(u.id)} className="p-2.5 bg-gray-900 rounded-xl text-red-500 hover:text-white transition-all shadow-sm" title="Revoke Access">
-                      {ICONS.Delete}
-                    </button>
+                    <button onClick={() => { 
+                      setEditingUser(u); 
+                      setFormData({ 
+                        name: u.name,
+                        username: u.username,
+                        password: u.password || '',
+                        role: u.role,
+                        mobile: u.mobile || '',
+                        address: u.address || '',
+                        staffCode: u.displayId,
+                        status: u.status || 'Active'
+                      }); 
+                      setShowModal(true); 
+                    }} className="text-blue-500 transition-transform hover:scale-125 p-2 bg-gray-900 rounded-lg border border-gray-800">{ICONS.Edit}</button>
+                    <button onClick={() => handleDelete(u.id)} className="text-red-500 transition-transform hover:scale-125 p-2 bg-gray-900 rounded-lg border border-gray-800">{ICONS.Delete}</button>
                   </div>
                 </td>
               </tr>
@@ -229,58 +179,56 @@ const UserManagement: React.FC<UserManagementProps> = ({ users, setUsers, curren
       {showModal && (
         <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-[110] p-4 backdrop-blur-md">
           <div className="bg-gray-950 border border-gray-800 rounded-[3rem] w-full max-w-lg p-10 animate-in zoom-in duration-200 shadow-2xl overflow-y-auto max-h-[90vh]">
-            <h3 className="text-3xl font-black mb-10 text-purple-500 uppercase tracking-tighter">{editingUser ? 'Modify Credentials' : 'Staff Onboarding'}</h3>
+            <h3 className="text-3xl font-black text-purple-500 uppercase tracking-tighter mb-10 leading-none">
+              {editingUser ? 'Update Credentials' : 'New User Account'}
+            </h3>
             <form onSubmit={handleAddOrUpdate} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">Full Name</label>
-                  <input required className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none text-white shadow-inner" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="Rahul Verma" />
+                  <label className="text-[9px] text-gray-500 uppercase px-4 font-black tracking-widest">Internal ID / Code</label>
+                  <input className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm text-white font-mono shadow-inner focus:border-purple-500 outline-none" placeholder="DBDY-HYD-001" value={formData.staffCode} onChange={e => setFormData({...formData, staffCode: e.target.value})} />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">Secure Contact</label>
-                  <input required className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none text-white shadow-inner font-mono" value={formData.mobile} onChange={e => setFormData({...formData, mobile: e.target.value})} placeholder="+91 XXXXX XXXXX" />
-                </div>
-              </div>
-              
-              <div className="space-y-2">
-                <label className="text-[10px] text-purple-500 font-black uppercase tracking-widest block px-3">Business ID (Override)</label>
-                <input className="w-full bg-black border border-purple-500/20 rounded-2xl p-4 text-sm font-mono focus:border-purple-500 outline-none text-white shadow-inner" value={formData.displayId} onChange={e => setFormData({...formData, displayId: e.target.value})} placeholder="e.g. DBDY-HYD-001" />
-                <p className="text-[9px] text-gray-700 mt-1 px-3">Leave blank for automatic SQL sequence generation.</p>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">Permanent Address</label>
-                <textarea className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm h-20 focus:border-purple-500 outline-none text-white shadow-inner" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} placeholder="Address for records" />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">Role</label>
-                  <select className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none text-white shadow-inner" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
-                    <option value={UserRole.ADMIN}>Admin</option>
-                    <option value={UserRole.OPS_MANAGER}>Ops-Manager</option>
-                    <option value={UserRole.OPERATION_EXECUTIVE}>Operation Executive</option>
-                    <option value={UserRole.DRIVER_PARTNER_MANAGER}>Driver Partner Manager</option>
-                    <option value={UserRole.FINANCE}>Finance</option>
-                    <option value={UserRole.DRIVER_HIRING_TEAM}>Driver Hiring Team (DHT)</option>
-                    <option value={UserRole.DRIVER}>Driver (Partner)</option>
+                  <label className="text-[9px] text-gray-600 uppercase font-black px-4 tracking-widest">Account Status</label>
+                  <select className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm text-white shadow-inner focus:border-purple-500 outline-none" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as any})}>
+                    <option value="Active">Active</option>
+                    <option value="Disabled">Disabled</option>
                   </select>
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[9px] text-gray-600 uppercase font-black px-2 tracking-widest">Full Name (Display)</label>
+                <input required className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm text-white shadow-inner focus:border-purple-500 outline-none" placeholder="e.g. Animesh Basak" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">Username</label>
-                  <input required className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none text-white shadow-inner font-mono" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} placeholder="operator_01" />
+                  <label className="text-[9px] text-gray-600 uppercase font-black px-2 tracking-widest">Login ID (Username)</label>
+                  <input required className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm text-white font-mono shadow-inner focus:border-purple-500 outline-none" placeholder="Mobile or Nickname" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[9px] text-gray-600 uppercase font-black px-2 tracking-widest">Security Pass</label>
+                  <input required className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm text-white shadow-inner focus:border-purple-500 outline-none font-mono" type="text" placeholder="Minimum 6 chars" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <label className="text-[10px] text-gray-500 uppercase px-3 font-black tracking-widest">Security Pass</label>
-                <input required className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm focus:border-purple-500 outline-none text-white shadow-inner" type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} placeholder="••••••••" />
+                <label className="text-[9px] text-gray-600 uppercase font-black px-2 tracking-widest">Permission Level (Role)</label>
+                <select className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-4 text-sm text-white shadow-inner focus:border-purple-500 outline-none" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
+                  <option value={UserRole.ADMIN}>Admin</option>
+                  <option value={UserRole.CUSTOMER}>Customer (Client Account)</option>
+                  <option value={UserRole.DRIVER}>Driver (Pilot Account)</option>
+                  <option value={UserRole.OPS_MANAGER}>Ops-Manager</option>
+                  <option value={UserRole.OPERATION_EXECUTIVE}>Operation Executive</option>
+                  <option value={UserRole.FINANCE}>Finance</option>
+                </select>
               </div>
 
-              <div className="flex gap-4 pt-6">
-                <button type="button" onClick={() => setShowModal(false)} className="flex-1 bg-gray-900 hover:bg-gray-800 py-5 rounded-[2rem] font-black uppercase text-[10px] tracking-widest text-white">Discard</button>
-                <button disabled={isSubmitting} type="submit" className="flex-1 bg-purple-600 hover:bg-purple-700 py-5 rounded-[2rem] font-black uppercase text-[10px] tracking-widest text-white shadow-xl shadow-purple-900/40 disabled:opacity-50">
-                  {isSubmitting ? 'Syncing...' : (editingUser ? 'Save Registry' : 'Confirm Registry')}
+              <div className="flex gap-4 pt-4">
+                <button type="button" onClick={() => setShowModal(false)} className="flex-1 bg-gray-900 py-5 rounded-[2rem] font-black uppercase text-[10px] text-gray-500 hover:text-white transition-all tracking-widest">Abort</button>
+                <button disabled={isSubmitting} type="submit" className="flex-1 bg-purple-600 py-5 rounded-[2rem] font-black uppercase text-[10px] text-white shadow-xl shadow-purple-950/40 active:scale-95 transition-all tracking-widest">
+                  {isSubmitting ? 'Processing...' : 'Sync Registry'}
                 </button>
               </div>
             </form>

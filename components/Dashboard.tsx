@@ -19,9 +19,11 @@ const Dashboard: React.FC<DashboardProps> = ({ users, drivers, trips, customers,
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [activeDrivers, setActiveDrivers] = useState<Driver[]>(drivers);
 
-  // Admin Location Tracking: Refresh every 1 minute
+  // REAL-TIME LOCATION TRACKING (STRICT SQL PULL - 1 Minute Frequency)
   useEffect(() => {
     const fetchLatestLocations = async () => {
+      // Pull from driver_locations for historical/trace or latest drivers update
+      // For simplicity in Dashboard, we read latest driver profile coordinates which are updated by Pilot terminal
       const { data, error } = await supabase.from('drivers').select('*');
       if (data && !error) {
         setActiveDrivers(data.map((d: any) => ({
@@ -33,7 +35,7 @@ const Dashboard: React.FC<DashboardProps> = ({ users, drivers, trips, customers,
           expiryDate: d.expiry_date,
           address: d.address || '',
           permanentAddress: d.permanent_address || '',
-          status: d.status || 'available',
+          status: d.status || 'Available',
           location: [d.location_lat || 12.9716, d.location_lng || 77.5946]
         })));
       }
@@ -43,16 +45,15 @@ const Dashboard: React.FC<DashboardProps> = ({ users, drivers, trips, customers,
     return () => clearInterval(interval);
   }, []);
 
-  // Update active drivers when drivers prop changes
   useEffect(() => {
     setActiveDrivers(drivers);
   }, [drivers]);
 
   const stats = [
-    { label: 'Active Drivers', value: drivers.filter(d => d.status !== 'inactive').length, icon: ICONS.Drivers, color: 'text-green-500' },
-    { label: 'Pending Trips', value: trips.filter(t => t.status === 'unassigned').length, icon: ICONS.Trips, color: 'text-yellow-500' },
+    { label: 'Active Drivers', value: drivers.filter(d => d.status !== 'Inactive').length, icon: ICONS.Drivers, color: 'text-green-500' },
+    { label: 'Pending Trips', value: trips.filter(t => t.status === 'NEW').length, icon: ICONS.Trips, color: 'text-yellow-500' },
     { label: 'Total Customers', value: customers.length, icon: ICONS.Users, color: 'text-purple-500' },
-    { label: 'Completed Trips', value: trips.filter(t => t.status === 'completed').length, icon: ICONS.History, color: 'text-blue-500' },
+    { label: 'Completed Trips', value: trips.filter(t => t.status === 'COMPLETED').length, icon: ICONS.History, color: 'text-blue-500' },
   ];
 
   return (
@@ -122,65 +123,9 @@ const Dashboard: React.FC<DashboardProps> = ({ users, drivers, trips, customers,
                 </div>
               );
             }).slice(0, 5)}
-            {drivers.filter(d => {
-              const daysLeft = Math.ceil((new Date(d.expiryDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24));
-              return daysLeft < 30;
-            }).length === 0 && (
-              <div className="p-12 text-center text-gray-700 italic text-sm">
-                System clear. No immediate license expirations found.
-              </div>
-            )}
           </div>
         </div>
       </div>
-
-      <div className="lg:col-span-3 bg-gray-950 rounded-[2.5rem] border border-gray-900 overflow-hidden shadow-2xl">
-          <div className="p-6 border-b border-gray-900 flex justify-between items-center bg-black/20">
-            <h3 className="font-black text-white uppercase text-xs tracking-widest">Recent Activity Manifest</h3>
-            <button className="text-[10px] font-black text-purple-500 hover:text-white uppercase tracking-widest transition-colors">View All Manifests →</button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-black text-gray-600 border-b border-gray-900">
-                <tr>
-                  <th className="p-5 font-black uppercase tracking-widest text-[9px]">Manifest ID</th>
-                  <th className="p-5 font-black uppercase tracking-widest text-[9px]">Customer</th>
-                  <th className="p-5 font-black uppercase tracking-widest text-[9px]">Route</th>
-                  <th className="p-5 font-black uppercase tracking-widest text-[9px]">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-900">
-                {trips.slice(0, 8).map(trip => {
-                  const customer = customers.find(c => c.id === trip.customerId);
-                  return (
-                    <tr key={trip.id} className="hover:bg-gray-900/40 transition-colors group">
-                      <td className="p-5">
-                        <div className="font-mono text-[10px] text-purple-500 font-bold">{trip.displayId}</div>
-                      </td>
-                      <td className="p-5">
-                        <div className="text-white font-bold text-sm mt-0.5">{customer?.name || 'Guest Registry'}</div>
-                      </td>
-                      <td className="p-5 max-w-[150px] truncate">
-                        <div className="text-gray-300 text-xs font-medium truncate">{trip.pickupLocation} ➔ {trip.dropLocation}</div>
-                        <div className="text-[8px] text-gray-700 uppercase font-black mt-0.5">{trip.tripType}</div>
-                      </td>
-                      <td className="p-5">
-                        <span className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${
-                          trip.status === 'completed' ? 'bg-emerald-900/30 text-emerald-400 border border-emerald-500/20' :
-                          trip.status === 'unassigned' ? 'bg-red-900/30 text-red-400 border border-red-500/20' :
-                          trip.status === 'cancelled' ? 'bg-gray-900 text-gray-600 border border-gray-800' :
-                          'bg-blue-900/30 text-blue-400 border border-blue-500/20'
-                        }`}>
-                          {trip.status}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
 
       {showBookingModal && (
         <TripBookingModal 
