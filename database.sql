@@ -1,5 +1,5 @@
 
--- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE SCRIPT V49
+-- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE SCRIPT V50
 -- TARGET: Mission Override Protocol & Unified Audit Registry
 
 -- 1. ENABLE EXTENSIONS
@@ -11,7 +11,7 @@ CREATE SEQUENCE IF NOT EXISTS seq_driver_code START 1;
 CREATE SEQUENCE IF NOT EXISTS seq_trip_code START 4501;
 CREATE SEQUENCE IF NOT EXISTS seq_customer_code START 101;
 
--- 3. MASTER TABLES
+-- 3. MASTER TABLES (With V50 Column Verification)
 CREATE TABLE IF NOT EXISTS public.users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     staff_code TEXT UNIQUE,
@@ -36,6 +36,9 @@ CREATE TABLE IF NOT EXISTS public.customers (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- V50 Repair for Customers
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS vehicle_model TEXT DEFAULT 'Standard';
+
 CREATE TABLE IF NOT EXISTS public.drivers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     driver_code TEXT UNIQUE,
@@ -50,6 +53,9 @@ CREATE TABLE IF NOT EXISTS public.drivers (
     location_lng FLOAT8 DEFAULT 78.4867,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- V50 Repair for Drivers
+ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Available';
 
 CREATE TABLE IF NOT EXISTS public.trips (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -72,6 +78,10 @@ CREATE TABLE IF NOT EXISTS public.trips (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- V50 Repair for Trips
+ALTER TABLE public.trips ADD COLUMN IF NOT EXISTS end_time TIMESTAMPTZ;
+ALTER TABLE public.trips ADD COLUMN IF NOT EXISTS trip_route TEXT DEFAULT 'Instation';
+
 CREATE TABLE IF NOT EXISTS public.trip_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     trip_id UUID REFERENCES public.trips(id) ON DELETE CASCADE,
@@ -81,12 +91,12 @@ CREATE TABLE IF NOT EXISTS public.trip_logs (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 4. V49 CREDENTIAL SYNC & ID GENERATION PROTOCOL
+-- 4. V50 CREDENTIAL SYNC & ID GENERATION PROTOCOL
 CREATE INDEX IF NOT EXISTS idx_users_username ON public.users(username);
 CREATE INDEX IF NOT EXISTS idx_customers_mobile ON public.customers(mobile_number);
 
--- 5. BUSINESS ID GENERATION LOGIC V49
-CREATE OR REPLACE FUNCTION public.fn_generate_business_id_v49() RETURNS TRIGGER AS $$
+-- 5. BUSINESS ID GENERATION LOGIC V50
+CREATE OR REPLACE FUNCTION public.fn_generate_business_id_v50() RETURNS TRIGGER AS $$
 BEGIN
   IF TG_TABLE_NAME = 'users' AND (NEW.staff_code IS NULL OR NEW.staff_code = '') THEN
     NEW.staff_code := 'DBDY-HYD-' || LPAD(nextval('seq_staff_code')::text, 3, '0');
@@ -103,16 +113,16 @@ $$ LANGUAGE plpgsql;
 
 -- 6. ATTACH TRIGGERS
 DROP TRIGGER IF EXISTS tr_users_code ON public.users;
-CREATE TRIGGER tr_users_code BEFORE INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v49();
+CREATE TRIGGER tr_users_code BEFORE INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v50();
 
 DROP TRIGGER IF EXISTS tr_drivers_code ON public.drivers;
-CREATE TRIGGER tr_drivers_code BEFORE INSERT ON public.drivers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v49();
+CREATE TRIGGER tr_drivers_code BEFORE INSERT ON public.drivers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v50();
 
 DROP TRIGGER IF EXISTS tr_trips_code ON public.trips;
-CREATE TRIGGER tr_trips_code BEFORE INSERT ON public.trips FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v49();
+CREATE TRIGGER tr_trips_code BEFORE INSERT ON public.trips FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v50();
 
 DROP TRIGGER IF EXISTS tr_customers_code ON public.customers;
-CREATE TRIGGER tr_customers_code BEFORE INSERT ON public.customers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v49();
+CREATE TRIGGER tr_customers_code BEFORE INSERT ON public.customers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v50();
 
 -- 7. INITIAL DATA RESET (Gopal's Verified Credentials)
 DELETE FROM public.users WHERE username = '9876543210';

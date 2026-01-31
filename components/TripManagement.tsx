@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Trip, Driver, Customer, User, UserRole, CompanySettings, TripLog } from '../types.ts';
 import { ICONS } from '../constants.tsx';
 import TripBookingModal from './TripBookingModal.tsx';
@@ -25,9 +25,15 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
   const [isProcessing, setIsProcessing] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   
+  // Selfie Modal State
+  const [activeSelfieType, setActiveSelfieType] = useState<'start' | 'end' | null>(null);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
   // Modals for Actions
   const [showAssignModal, setShowAssignModal] = useState(false);
-  const [showReasonModal, setShowReasonModal] = useState<{ type: 'REASSIGN' | 'DELETE' | 'END_TRIP', targetId?: string } | null>(null);
+  const [showReasonModal, setShowReasonModal] = useState<{ type: 'REASSIGN' | 'DELETE', targetId?: string } | null>(null);
   const [actionReason, setActionReason] = useState('');
   const [pendingDriverId, setPendingDriverId] = useState<string | null>(null);
 
@@ -114,6 +120,19 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
     }
   };
 
+  const formatMissionDate = (dateStr?: string) => {
+    if (!dateStr) return 'Pending...';
+    const date = new Date(dateStr);
+    return date.toLocaleString('en-GB', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    }).replace(',', ' |');
+  };
+
   const logAction = async (tripId: string, action: string, reason?: string) => {
     await supabase.from('trip_logs').insert([{
       trip_id: tripId,
@@ -123,11 +142,31 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
     }]);
   };
 
-  const handleStartTrip = async () => {
-    if (!detailedTrip || !detailedTrip.driverId) {
-      alert("ERROR: Mission cannot start without an allocated Pilot.");
-      return;
+  // Selfie Protocol
+  const startCamera = async () => {
+    setCapturedImage(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      if (videoRef.current) videoRef.current.srcObject = stream;
+    } catch (err) {
+      alert("Security Error: Access to mission imaging denied.");
     }
+  };
+
+  const capturePhoto = () => {
+    if (videoRef.current && canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(videoRef.current, 0, 0, 400, 300);
+        setCapturedImage(canvasRef.current.toDataURL('image/png'));
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+      }
+    }
+  };
+
+  const handleStartTrip = async () => {
+    if (!detailedTrip || !detailedTrip.driverId || !capturedImage) return;
     setIsProcessing(true);
     try {
       const now = new Date().toISOString();
@@ -136,7 +175,12 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
         start_time: now
       }).eq('id', detailedTrip.id);
 
-      await logAction(detailedTrip.id, 'TRIP_STARTED', 'Staff-Initiated Manual Override');
+      await supabase.from('drivers').update({ status: 'Busy' }).eq('id', detailedTrip.driverId);
+
+      await logAction(detailedTrip.id, 'TRIP_STARTED', 'Manual Staff Overide with Selfie Auth');
+      
+      setActiveSelfieType(null);
+      setCapturedImage(null);
       alert('Mission INITIALIZED successfully.');
       fetchDetailedTrip(detailedTrip.id);
     } catch (err: any) {
@@ -147,13 +191,13 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
   };
 
   const handleEndTrip = async () => {
-    if (!detailedTrip || !actionReason) return;
+    if (!detailedTrip || !capturedImage) return;
     setIsProcessing(true);
 
     try {
       const now = new Date().toISOString();
       
-      // Calculate Fare
+      // Calculate Fare from Engine
       const billing = calculateFareInternal(
         new Date(detailedTrip.startDateTime),
         new Date(now),
@@ -162,7 +206,6 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
         detailedTrip.tripType === 'one-way' ? "One Way" : "Round Trip"
       );
 
-      // 1. Update Trip Table
       await supabase.from('trips').update({
         trip_status: 'COMPLETED',
         end_time: now,
@@ -170,17 +213,15 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
         payment_status: 'pending'
       }).eq('id', detailedTrip.id);
 
-      // 2. Release Pilot
       if (detailedTrip.driverId) {
         await supabase.from('drivers').update({ status: 'Available' }).eq('id', detailedTrip.driverId);
       }
 
-      // 3. Log Audit
-      await logAction(detailedTrip.id, 'TRIP_COMPLETED', `Staff Override: ${actionReason}`);
+      await logAction(detailedTrip.id, 'TRIP_COMPLETED', 'Manual Staff Overide with Selfie Auth');
 
-      alert(`Mission TERMINATED. Total Bill: ₹${billing.totalPrice}`);
-      setShowReasonModal(null);
-      setActionReason('');
+      setActiveSelfieType(null);
+      setCapturedImage(null);
+      alert(`Mission TERMINATED. Final Payable: ₹${billing.totalPrice}`);
       fetchDetailedTrip(detailedTrip.id);
     } catch (err: any) {
       alert(`Sync Failure: ${err.message}`);
@@ -194,7 +235,6 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
     setIsProcessing(true);
 
     try {
-      // 1. DUPLICATE CHECK
       const { data: conflict } = await supabase
         .from('trips')
         .select('trip_code')
@@ -203,22 +243,18 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
         .maybeSingle();
 
       if (conflict) {
-        alert(`SECURITY BREACH: Pilot is already assigned to active Manifest ${conflict.trip_code}. Unassign first.`);
+        alert(`SECURITY BREACH: Pilot already assigned to Manifest ${conflict.trip_code}.`);
         return;
       }
 
       const isReassignment = !!detailedTrip.driverId;
-
-      // 2. FREE OLD PILOT (IF ANY)
       if (isReassignment && detailedTrip.driverId) {
         await supabase.from('drivers').update({ status: 'Available' }).eq('id', detailedTrip.driverId);
       }
 
-      // 3. LOCK NEW PILOT & ASSIGN
       await supabase.from('drivers').update({ status: 'Busy' }).eq('id', driverId);
       await supabase.from('trips').update({ driver_id: driverId, trip_status: 'ASSIGNED' }).eq('id', detailedTrip.id);
 
-      // 4. AUDIT
       await logAction(detailedTrip.id, isReassignment ? 'DRIVER_CHANGED' : 'DRIVER_ASSIGNED', isReassignment ? actionReason : undefined);
       
       alert('Mission Parameters Synchronized.');
@@ -236,22 +272,18 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
   const handleDeleteTrip = async () => {
     if (!detailedTrip || !actionReason) return;
     setIsProcessing(true);
-
     try {
-      // SOFT DELETE
       await supabase.from('trips').update({
         trip_status: 'DELETED',
         deleted_at: new Date().toISOString(),
         delete_reason: actionReason
       }).eq('id', detailedTrip.id);
 
-      // FREE PILOT
       if (detailedTrip.driverId) {
         await supabase.from('drivers').update({ status: 'Available' }).eq('id', detailedTrip.driverId);
       }
 
       await logAction(detailedTrip.id, 'TRIP_DELETED', actionReason);
-
       alert('Manifest Archived successfully.');
       setShowReasonModal(null);
       setActionReason('');
@@ -265,7 +297,6 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
 
   const filteredTrips = useMemo(() => {
     return trips.filter(trip => {
-      // Hide deleted trips from main view
       if (trip.status === 'DELETED') return false;
       const customer = customers.find(c => c.id === trip.customerId);
       const term = searchTerm.toLowerCase();
@@ -359,71 +390,159 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
         </table>
       </div>
 
-      {/* TRIP DETAIL VIEW */}
+      {/* TRIP INFORMATION PAGE (MODAL) */}
       {viewingTripId && detailedTrip && (
         <div className="fixed inset-0 bg-black/98 backdrop-blur-xl flex items-center justify-center z-[150] p-4">
-          <div className="bg-gray-950 border border-gray-800 rounded-[4rem] w-full max-w-4xl p-10 shadow-2xl relative overflow-y-auto max-h-[95vh]">
-            <div className="flex justify-between items-start mb-10">
+          <div className="bg-gray-950 border border-gray-800 rounded-[3.5rem] w-full max-w-5xl p-10 shadow-2xl relative overflow-y-auto max-h-[95vh] custom-scrollbar">
+            {isProcessing && (
+              <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-[160] flex items-center justify-center rounded-[3.5rem]">
+                <div className="text-purple-500 font-black animate-pulse">RE-FETCHING SQL DATA...</div>
+              </div>
+            )}
+            
+            <div className="flex justify-between items-start mb-8">
               <div>
-                <h3 className="text-3xl font-black text-white uppercase tracking-tighter">Mission Intelligence</h3>
+                <h3 className="text-4xl font-black text-white uppercase tracking-tighter">Mission Intelligence</h3>
                 <p className="text-[10px] text-purple-500 font-black uppercase tracking-[0.4em] mt-3">Registry ID: {detailedTrip.displayId}</p>
               </div>
               <button onClick={() => setViewingTripId(null)} className="p-4 bg-gray-900 rounded-3xl text-gray-500 hover:text-white transition-all">✕</button>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-               <div className="space-y-6">
-                  <section className="bg-black/40 border border-gray-900 rounded-[2.5rem] p-8">
-                    <h4 className="text-[9px] text-gray-600 uppercase font-black tracking-widest mb-4">Client Detail</h4>
-                    <p className="text-lg font-black text-white">{detailedTrip.customer?.name}</p>
-                    <p className="text-sm font-mono text-purple-400">{detailedTrip.customer?.mobile}</p>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+               {/* Left Column: Personnel & Logistics */}
+               <div className="lg:col-span-4 space-y-6">
+                  <section className="bg-black/40 border border-gray-900 rounded-[2rem] p-6 shadow-inner">
+                    <h4 className="text-[9px] text-gray-600 uppercase font-black tracking-widest mb-4 flex items-center gap-2">{ICONS.Profile} Customer Information</h4>
+                    <div className="space-y-1">
+                      <p className="text-lg font-black text-white leading-tight">{detailedTrip.customer?.name}</p>
+                      <p className="text-sm font-mono text-purple-400">{detailedTrip.customer?.mobile}</p>
+                    </div>
                   </section>
 
-                  <section className="bg-black/40 border border-gray-900 rounded-[2.5rem] p-8">
-                    <h4 className="text-[9px] text-gray-600 uppercase font-black tracking-widest mb-4">Pilot Allocation & State</h4>
-                    {detailedTrip.driver ? (
-                      <div className="space-y-4">
-                        <div className="flex justify-between items-center mb-4">
-                          <p className="text-lg font-black text-white">{detailedTrip.driver.name}</p>
-                          <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase ${detailedTrip.status === 'STARTED' ? 'bg-blue-500 text-white' : 'bg-gray-800 text-gray-400'}`}>{detailedTrip.status}</span>
-                        </div>
-                        
-                        {canControlMission && (
-                          <div className="grid grid-cols-1 gap-2">
-                            {detailedTrip.status === 'ASSIGNED' && (
-                              <button onClick={handleStartTrip} className="w-full py-4 bg-emerald-600 text-white font-black uppercase text-[10px] rounded-xl shadow-lg hover:bg-emerald-700 transition-all tracking-widest">Initialize Mission (Override)</button>
-                            )}
-                            {detailedTrip.status === 'STARTED' && (
-                              <button onClick={() => setShowReasonModal({ type: 'END_TRIP' })} className="w-full py-4 bg-red-600 text-white font-black uppercase text-[10px] rounded-xl shadow-lg hover:bg-red-700 transition-all tracking-widest">Terminate Mission (Override)</button>
-                            )}
-                            <button onClick={() => setShowAssignModal(true)} className="w-full py-3 bg-gray-900 text-blue-500 font-black uppercase text-[9px] rounded-xl border border-gray-800 hover:bg-blue-600 hover:text-white transition-all tracking-widest">Request Pilot Change</button>
-                          </div>
-                        )}
+                  <section className="bg-black/40 border border-gray-900 rounded-[2rem] p-6 shadow-inner">
+                    <h4 className="text-[9px] text-gray-600 uppercase font-black tracking-widest mb-4 flex items-center gap-2">{ICONS.Trips} Location Details</h4>
+                    <div className="space-y-4">
+                      <div>
+                        <p className="text-[8px] text-gray-700 uppercase font-black mb-1">Pickup Logistics</p>
+                        <p className="text-xs font-bold text-gray-300 leading-relaxed">{detailedTrip.pickupLocation}</p>
                       </div>
-                    ) : (
-                      <div className="text-center py-4">
-                        <p className="text-xs text-gray-600 italic mb-4">No Pilot Assigned</p>
-                        {isAdminOrManager && (
-                          <button onClick={() => setShowAssignModal(true)} className="w-full py-4 bg-purple-600 text-white font-black uppercase text-[10px] rounded-2xl shadow-xl transition-all">Assign Professional Pilot</button>
-                        )}
+                      <div>
+                        <p className="text-[8px] text-gray-700 uppercase font-black mb-1">Drop Logistics</p>
+                        <p className="text-xs font-bold text-gray-300 leading-relaxed">{detailedTrip.dropLocation}</p>
                       </div>
-                    )}
+                    </div>
+                  </section>
+
+                  <section className="bg-black/40 border border-gray-900 rounded-[2rem] p-6 shadow-inner">
+                    <h4 className="text-[9px] text-gray-600 uppercase font-black tracking-widest mb-4 flex items-center gap-2">{ICONS.History} Trip Timing</h4>
+                    <div className="space-y-4">
+                      <div>
+                        <p className="text-[8px] text-gray-700 uppercase font-black mb-1">Manifest Start</p>
+                        <p className="text-xs font-mono font-bold text-white">{formatMissionDate(detailedTrip.startDateTime)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[8px] text-gray-700 uppercase font-black mb-1">Manifest Completion</p>
+                        <p className="text-xs font-mono font-bold text-white">{formatMissionDate(detailedTrip.endDateTime)}</p>
+                      </div>
+                    </div>
                   </section>
                </div>
 
-               <div className="bg-gray-900/30 border border-gray-800 rounded-[2.5rem] p-8 flex flex-col h-full">
-                  <h4 className="text-[9px] text-gray-600 uppercase font-black tracking-widest mb-6">Mission Logs & Audit Trail</h4>
-                  <div className="flex-1 space-y-6 overflow-y-auto pr-4 custom-scrollbar max-h-[400px]">
+               {/* Center Column: Fare Breakdown & Actions */}
+               <div className="lg:col-span-4 space-y-6">
+                  {detailedTrip.status === 'COMPLETED' ? (
+                    <section className="bg-purple-900/10 border-2 border-purple-500/20 rounded-[2rem] p-6 shadow-inner flex flex-col items-center">
+                      <h4 className="text-[9px] text-purple-400 uppercase font-black tracking-widest mb-6">Trip Fare Section</h4>
+                      <div className="w-full space-y-3 mb-8">
+                         {(() => {
+                            const fare = calculateFareInternal(
+                              new Date(detailedTrip.startDateTime),
+                              new Date(detailedTrip.endDateTime),
+                              "No",
+                              detailedTrip.tripRoute,
+                              detailedTrip.tripType === 'one-way' ? "One Way" : "Round Trip"
+                            );
+                            return (
+                              <>
+                                <div className="flex justify-between text-[10px] text-gray-500 uppercase font-bold">
+                                  <span>Base Fare</span>
+                                  <span className="text-white">₹{Math.round(fare.basePrice * 0.6)}</span>
+                                </div>
+                                <div className="flex justify-between text-[10px] text-gray-500 uppercase font-bold">
+                                  <span>Distance Fare</span>
+                                  <span className="text-white">₹{Math.round(fare.basePrice * 0.3)}</span>
+                                </div>
+                                <div className="flex justify-between text-[10px] text-gray-500 uppercase font-bold">
+                                  <span>Time Fare</span>
+                                  <span className="text-white">₹{Math.round(fare.basePrice * 0.1)}</span>
+                                </div>
+                                <div className="flex justify-between text-[10px] text-purple-400 uppercase font-bold pt-2 border-t border-purple-500/20">
+                                  <span>Taxes (GST 18%)</span>
+                                  <span>₹{fare.gst}</span>
+                                </div>
+                                <div className="pt-4 mt-4 border-t-2 border-dashed border-purple-500/40 text-center w-full">
+                                   <p className="text-[10px] text-gray-400 uppercase font-black mb-1">Total Payable Amount</p>
+                                   <p className="text-4xl font-black text-white">₹ {fare.totalPrice}.00</p>
+                                </div>
+                              </>
+                            );
+                         })()}
+                      </div>
+                      <button className="w-full py-4 bg-purple-600 rounded-xl font-black uppercase text-[10px] tracking-widest text-white shadow-xl">Generate Invoice</button>
+                    </section>
+                  ) : (
+                    <section className="bg-gray-900/30 border border-gray-800 rounded-[2rem] p-6 flex flex-col items-center justify-center text-center space-y-4">
+                       <div className="w-16 h-16 bg-gray-950 rounded-full flex items-center justify-center text-gray-700">₹</div>
+                       <p className="text-[10px] text-gray-600 uppercase font-black leading-relaxed">Fare breakdown will be generated upon mission completion using the official estimation engine.</p>
+                    </section>
+                  )}
+
+                  <section className="bg-black/40 border border-gray-900 rounded-[2rem] p-6 shadow-inner">
+                    <h4 className="text-[9px] text-gray-600 uppercase font-black tracking-widest mb-6 border-b border-gray-800 pb-2">Trip Actions</h4>
+                    <div className="space-y-3">
+                      {detailedTrip.status === 'ASSIGNED' && canControlMission && (
+                        <button 
+                          onClick={() => { setActiveSelfieType('start'); startCamera(); }}
+                          className="w-full py-5 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[10px] rounded-2xl shadow-xl transition-all tracking-widest"
+                        >
+                          Start Trip
+                        </button>
+                      )}
+                      {detailedTrip.status === 'STARTED' && canControlMission && (
+                        <button 
+                          onClick={() => { setActiveSelfieType('end'); startCamera(); }}
+                          className="w-full py-5 bg-red-600 hover:bg-red-700 text-white font-black uppercase text-[10px] rounded-2xl shadow-xl transition-all tracking-widest"
+                        >
+                          End Trip
+                        </button>
+                      )}
+                      {detailedTrip.status === 'COMPLETED' && (
+                        <div className="p-4 bg-emerald-950/20 border border-emerald-500/20 rounded-2xl text-center">
+                          <p className="text-[10px] text-emerald-500 font-black uppercase tracking-widest">Mission Concluded</p>
+                        </div>
+                      )}
+                      {!detailedTrip.driverId && (
+                        <button onClick={() => setShowAssignModal(true)} className="w-full py-5 bg-purple-600 text-white font-black uppercase text-[10px] rounded-2xl shadow-xl">Allocate Pilot</button>
+                      )}
+                      <button onClick={() => setShowAssignModal(true)} className="w-full py-3 bg-gray-900 text-blue-500 font-black uppercase text-[9px] rounded-xl border border-gray-800 hover:bg-blue-600 hover:text-white transition-all tracking-widest">Reassign Pilot</button>
+                    </div>
+                  </section>
+               </div>
+
+               {/* Right Column: Audit Logs */}
+               <div className="lg:col-span-4 bg-gray-900/30 border border-gray-800 rounded-[2rem] p-8 flex flex-col h-full">
+                  <h4 className="text-[9px] text-gray-600 uppercase font-black tracking-widest mb-6 flex items-center gap-2">{ICONS.History} Mission Audit Log</h4>
+                  <div className="flex-1 space-y-6 overflow-y-auto pr-4 custom-scrollbar max-h-[500px]">
                     {detailedTrip.logs.map(log => (
                       <div key={log.id} className="relative pl-6 border-l border-gray-800 pb-4 last:pb-0">
                         <div className="absolute left-[-5px] top-0 w-2 h-2 rounded-full bg-purple-600 shadow-sm"></div>
                         <p className="text-[10px] font-black text-white uppercase tracking-tight">{log.action.replace(/_/g, ' ')}</p>
-                        <p className="text-[8px] text-gray-500 uppercase mt-1">Performed by: {log.performer_name || 'System Auto'} ({log.performer_id || 'ID-EXT'})</p>
+                        <p className="text-[8px] text-gray-500 uppercase mt-1">By: {log.performer_name || 'System'} ({log.performer_id || 'ID-EXT'})</p>
                         <p className="text-[8px] text-gray-500 font-mono">{new Date(log.created_at).toLocaleString()}</p>
-                        {log.reason && <p className="text-[9px] text-blue-400 mt-2 bg-blue-950/20 p-2 rounded-lg italic border border-blue-500/10">Reason: {log.reason}</p>}
+                        {log.reason && <p className="text-[9px] text-blue-400 mt-2 bg-blue-950/20 p-2 rounded-lg italic border border-blue-500/10 leading-relaxed">Note: {log.reason}</p>}
                       </div>
                     ))}
-                    {detailedTrip.logs.length === 0 && <p className="text-xs text-gray-700 italic text-center py-10">Historical logs are being archived...</p>}
+                    {detailedTrip.logs.length === 0 && <p className="text-xs text-gray-700 italic text-center py-10 uppercase font-black tracking-widest opacity-20">Registry Clean</p>}
                   </div>
                </div>
             </div>
@@ -431,7 +550,46 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
         </div>
       )}
 
-      {/* PILOT ASSIGNMENT MODAL */}
+      {/* SELFIE VERIFICATION MODAL */}
+      {activeSelfieType && (
+        <div className="fixed inset-0 bg-black/98 backdrop-blur-2xl z-[300] flex flex-col p-8 items-center justify-center animate-in fade-in duration-300">
+           <div className="max-w-md w-full bg-gray-950 border border-gray-800 rounded-[3rem] p-8 shadow-2xl relative">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-2xl font-black text-purple-500 uppercase tracking-tighter">Pilot Authentication</h3>
+                <button onClick={() => setActiveSelfieType(null)} className="text-gray-500 p-2">✕</button>
+              </div>
+              
+              <div className="aspect-[4/3] bg-black rounded-3xl overflow-hidden border-2 border-purple-500/30 relative shadow-inner mb-8">
+                {!capturedImage ? (
+                  <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+                ) : (
+                  <img src={capturedImage} className="w-full h-full object-cover" alt="Verification Scan" />
+                )}
+              </div>
+              
+              <canvas ref={canvasRef} width="400" height="300" className="hidden" />
+
+              <div className="space-y-4">
+                {!capturedImage ? (
+                  <button onClick={capturePhoto} className="w-full bg-purple-600 py-6 rounded-2xl font-black uppercase tracking-widest text-[11px] text-white shadow-2xl shadow-purple-900/40">Initialize Identity Scan</button>
+                ) : (
+                  <div className="flex gap-4">
+                    <button onClick={() => { setCapturedImage(null); startCamera(); }} className="flex-1 bg-gray-900 py-5 rounded-2xl font-black uppercase text-[10px] text-gray-400">Re-Scan</button>
+                    <button 
+                      disabled={isProcessing} 
+                      onClick={activeSelfieType === 'start' ? handleStartTrip : handleEndTrip} 
+                      className="flex-[2] bg-emerald-600 py-5 rounded-2xl font-black uppercase text-[10px] text-white shadow-xl shadow-emerald-900/40"
+                    >
+                      {isProcessing ? 'SYNCHRONIZING...' : 'Verify & Commit'}
+                    </button>
+                  </div>
+                )}
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* PILOT ALLOCATION MODAL */}
       {showAssignModal && (
         <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-[200] p-6 backdrop-blur-md">
           <div className="bg-gray-950 border border-gray-800 rounded-[3rem] w-full max-w-xl p-10 shadow-2xl">
@@ -442,10 +600,10 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
              
              <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
                 {drivers.filter(d => d.status === 'Available').map(driver => (
-                  <div key={driver.id} className="bg-gray-900 p-6 rounded-[2rem] border border-gray-800 flex items-center justify-between group hover:border-purple-500 transition-all">
+                  <div key={driver.id} className="bg-gray-900 p-6 rounded-[2rem] border border-gray-800 flex items-center justify-between group hover:border-purple-500 transition-all shadow-lg">
                     <div>
-                      <p className="font-black text-white">{driver.name}</p>
-                      <p className="text-[9px] text-purple-500 font-mono">{driver.displayId}</p>
+                      <p className="font-black text-white leading-tight">{driver.name}</p>
+                      <p className="text-[9px] text-purple-500 font-mono font-bold">{driver.displayId}</p>
                     </div>
                     <button 
                       onClick={() => {
@@ -462,32 +620,26 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
                     </button>
                   </div>
                 ))}
-                {drivers.filter(d => d.status === 'Available').length === 0 && (
-                  <div className="text-center py-20 text-gray-700 italic border border-dashed border-gray-800 rounded-[2rem]">No available pilots in current deployment zone.</div>
-                )}
              </div>
           </div>
         </div>
       )}
 
-      {/* REASON MODAL (Reassign, Delete, or End Trip) */}
+      {/* REASON MODAL */}
       {showReasonModal && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[300] p-6 backdrop-blur-lg">
           <div className={`bg-gray-950 border rounded-[3rem] w-full max-w-md p-10 shadow-2xl ${showReasonModal.type === 'DELETE' ? 'border-red-500/30' : 'border-blue-500/30'}`}>
              <h3 className="text-xl font-black text-white uppercase tracking-tighter mb-4">
-               {showReasonModal.type === 'REASSIGN' ? 'Pilot Reassignment Reason' : 
-                showReasonModal.type === 'END_TRIP' ? 'Manual Mission Termination' : 'Mission Archive Reason'}
+               {showReasonModal.type === 'REASSIGN' ? 'Pilot Reassignment Reason' : 'Mission Archive Reason'}
              </h3>
              <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-6">Security Authorization Required</p>
-             
              <textarea 
                required
-               placeholder="Enter mandatory justification..."
+               placeholder="Mandatory justification..."
                className={`w-full bg-black border rounded-2xl p-4 text-sm text-white outline-none h-32 mb-6 ${showReasonModal.type === 'DELETE' ? 'border-red-500/30 focus:border-red-500' : 'border-blue-500/30 focus:border-blue-500'}`}
                value={actionReason}
                onChange={e => setActionReason(e.target.value)}
              />
-
              <div className="flex gap-4">
                 <button onClick={() => setShowReasonModal(null)} className="flex-1 py-4 bg-gray-900 rounded-2xl font-black uppercase text-[10px] text-gray-500">Abort</button>
                 <button 
@@ -495,13 +647,11 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
                   onClick={() => {
                     if (showReasonModal.type === 'REASSIGN' && pendingDriverId) {
                       handleAssignDriver(pendingDriverId);
-                    } else if (showReasonModal.type === 'END_TRIP') {
-                      handleEndTrip();
                     } else {
                       handleDeleteTrip();
                     }
                   }}
-                  className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] text-white shadow-xl transition-all active:scale-95 ${showReasonModal.type === 'DELETE' ? 'bg-red-600 shadow-red-900/40' : 'bg-blue-600 shadow-blue-900/40'}`}
+                  className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] text-white shadow-xl ${showReasonModal.type === 'DELETE' ? 'bg-red-600' : 'bg-blue-600'}`}
                 >
                   Confirm Operations
                 </button>
