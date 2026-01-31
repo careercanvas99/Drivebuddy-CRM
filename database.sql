@@ -1,5 +1,5 @@
 
--- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE SCRIPT V46
+-- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE SCRIPT V47
 -- TARGET: Unified Identity Management & Global Credential Registry
 
 -- 1. ENABLE EXTENSIONS
@@ -18,10 +18,10 @@ CREATE TABLE IF NOT EXISTS public.users (
     username TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
     name TEXT NOT NULL,
-    role TEXT NOT NULL, -- Admin, Customer, Driver, Ops-Manager, Finance, etc.
+    role TEXT NOT NULL, 
     mobile TEXT,
     address TEXT,
-    status TEXT DEFAULT 'Active', -- Active / Disabled
+    status TEXT DEFAULT 'Active',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS public.trips (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 4. V46 CREDENTIAL SYNC PROTOCOL UPDATES
+-- 4. V47 CREDENTIAL SYNC & ID GENERATION PROTOCOL
 CREATE INDEX IF NOT EXISTS idx_users_username ON public.users(username);
 CREATE INDEX IF NOT EXISTS idx_customers_mobile ON public.customers(mobile_number);
 
@@ -85,8 +85,8 @@ BEGIN
     END IF;
 END $$;
 
--- 6. BUSINESS ID GENERATION LOGIC
-CREATE OR REPLACE FUNCTION public.fn_generate_business_id_v45() RETURNS TRIGGER AS $$
+-- 6. BUSINESS ID GENERATION LOGIC V47
+CREATE OR REPLACE FUNCTION public.fn_generate_business_id_v47() RETURNS TRIGGER AS $$
 BEGIN
   IF TG_TABLE_NAME = 'users' AND (NEW.staff_code IS NULL OR NEW.staff_code = '') THEN
     NEW.staff_code := 'DBDY-HYD-' || LPAD(nextval('seq_staff_code')::text, 3, '0');
@@ -103,16 +103,16 @@ $$ LANGUAGE plpgsql;
 
 -- 7. ATTACH TRIGGERS
 DROP TRIGGER IF EXISTS tr_users_code ON public.users;
-CREATE TRIGGER tr_users_code BEFORE INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v45();
+CREATE TRIGGER tr_users_code BEFORE INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
 
 DROP TRIGGER IF EXISTS tr_drivers_code ON public.drivers;
-CREATE TRIGGER tr_drivers_code BEFORE INSERT ON public.drivers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v45();
+CREATE TRIGGER tr_drivers_code BEFORE INSERT ON public.drivers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
 
 DROP TRIGGER IF EXISTS tr_trips_code ON public.trips;
-CREATE TRIGGER tr_trips_code BEFORE INSERT ON public.trips FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v45();
+CREATE TRIGGER tr_trips_code BEFORE INSERT ON public.trips FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
 
 DROP TRIGGER IF EXISTS tr_customers_code ON public.customers;
-CREATE TRIGGER tr_customers_code BEFORE INSERT ON public.customers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v45();
+CREATE TRIGGER tr_customers_code BEFORE INSERT ON public.customers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
 
 -- 8. INITIAL DATA RESET (Gopal's Verified Credentials)
 DELETE FROM public.users WHERE username = '9876543210';

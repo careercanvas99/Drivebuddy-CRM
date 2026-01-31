@@ -28,22 +28,41 @@ const Settings: React.FC<SettingsProps> = ({ settings, setSettings }) => {
     setSettings(prev => ({ ...prev, [name]: value }));
   };
 
-  const sqlSnippet = `-- DRIVEBUDDY CRITICAL SCHEMA REPAIR
--- 1. PILOT REGISTRY FIXES
-ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS issue_date DATE;
-ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS expiry_date DATE;
-ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS address TEXT;
-ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS permanent_address TEXT;
+  const sqlSnippet = `-- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE REPAIR V47
+-- 1. SETUP SEQUENCES
+CREATE SEQUENCE IF NOT EXISTS seq_staff_code START 1;
+CREATE SEQUENCE IF NOT EXISTS seq_driver_code START 1;
+CREATE SEQUENCE IF NOT EXISTS seq_trip_code START 4501;
+CREATE SEQUENCE IF NOT EXISTS seq_customer_code START 101;
 
--- 2. MISSION LOG REPAIR
-ALTER TABLE public.trips ADD COLUMN IF NOT EXISTS trip_route TEXT DEFAULT 'Instation';
-ALTER TABLE public.trips ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
+-- 2. GENERATION FUNCTION
+CREATE OR REPLACE FUNCTION public.fn_generate_business_id_v47() RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_TABLE_NAME = 'users' AND (NEW.staff_code IS NULL OR NEW.staff_code = '') THEN
+    NEW.staff_code := 'DBDY-HYD-' || LPAD(nextval('seq_staff_code')::text, 3, '0');
+  ELSIF TG_TABLE_NAME = 'drivers' AND (NEW.driver_code IS NULL OR NEW.driver_code = '') THEN
+    NEW.driver_code := 'DBDY-HYD-DR-' || LPAD(nextval('seq_driver_code')::text, 3, '0');
+  ELSIF TG_TABLE_NAME = 'trips' AND (NEW.trip_code IS NULL OR NEW.trip_code = '') THEN
+    NEW.trip_code := 'TRIP-' || nextval('seq_trip_code')::text;
+  ELSIF TG_TABLE_NAME = 'customers' AND (NEW.customer_code IS NULL OR NEW.customer_code = '') THEN
+    NEW.customer_code := 'CUST-' || nextval('seq_customer_code')::text;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
--- 3. ENSURE UUID AUTO-GEN
-ALTER TABLE public.users ALTER COLUMN id SET DEFAULT gen_random_uuid();
-ALTER TABLE public.drivers ALTER COLUMN id SET DEFAULT gen_random_uuid();
-ALTER TABLE public.customers ALTER COLUMN id SET DEFAULT gen_random_uuid();
-ALTER TABLE public.trips ALTER COLUMN id SET DEFAULT gen_random_uuid();
+-- 3. ATTACH TRIGGERS
+DROP TRIGGER IF EXISTS tr_users_code ON public.users;
+CREATE TRIGGER tr_users_code BEFORE INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
+
+DROP TRIGGER IF EXISTS tr_drivers_code ON public.drivers;
+CREATE TRIGGER tr_drivers_code BEFORE INSERT ON public.drivers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
+
+DROP TRIGGER IF EXISTS tr_trips_code ON public.trips;
+CREATE TRIGGER tr_trips_code BEFORE INSERT ON public.trips FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
+
+DROP TRIGGER IF EXISTS tr_customers_code ON public.customers;
+CREATE TRIGGER tr_customers_code BEFORE INSERT ON public.customers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v47();
 
 -- 4. REFRESH API CACHE
 NOTIFY pgrst, 'reload schema';`;
@@ -124,13 +143,13 @@ NOTIFY pgrst, 'reload schema';`;
         <div className="flex items-center gap-4 text-orange-500">
           <div className="p-3 bg-orange-500/10 rounded-2xl">{ICONS.Reports}</div>
           <div>
-            <h3 className="text-xl font-black uppercase tracking-tighter">Schema Constraint Recovery</h3>
-            <p className="text-xs text-orange-500/60 uppercase font-bold tracking-widest">Force Column Verification</p>
+            <h3 className="text-xl font-black uppercase tracking-tighter">Unified ID Generation Protocol (V47)</h3>
+            <p className="text-xs text-orange-500/60 uppercase font-bold tracking-widest">Global Sequence Maintenance</p>
           </div>
         </div>
         
         <p className="text-sm text-gray-400 leading-relaxed">
-          If you encounter <span className="text-white font-mono text-[11px]">"column does not exist"</span> or cache errors, use the repair script below. It forces all required pilot and trip columns into existence and reloads the API cache.
+          The script below restores the sequence triggers for staff (users), pilots (drivers), manifest entries (trips), and clients (customers). It ensures that every new entity created in the system receives a properly formatted Business ID.
         </p>
 
         <div className="relative group">
@@ -141,7 +160,7 @@ NOTIFY pgrst, 'reload schema';`;
             onClick={copySql}
             className="absolute top-4 right-4 bg-gray-800 hover:bg-white hover:text-black px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
           >
-            {copyStatus === 'copied' ? 'SQL Copied' : 'Copy Repair SQL'}
+            {copyStatus === 'copied' ? 'Protocol Copied' : 'Copy Sync SQL'}
           </button>
         </div>
       </div>
