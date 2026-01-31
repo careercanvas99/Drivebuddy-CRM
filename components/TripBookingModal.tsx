@@ -9,9 +9,10 @@ interface TripBookingModalProps {
   customers: Customer[];
   setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>;
   setTrips: React.Dispatch<React.SetStateAction<Trip[]>>;
+  currentUserId?: string; // Passed to log initial creation
 }
 
-const TripBookingModal: React.FC<TripBookingModalProps> = ({ isOpen, onClose, customers, setCustomers, setTrips }) => {
+const TripBookingModal: React.FC<TripBookingModalProps> = ({ isOpen, onClose, customers, setCustomers, setTrips, currentUserId }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     customerName: '',
@@ -34,7 +35,6 @@ const TripBookingModal: React.FC<TripBookingModalProps> = ({ isOpen, onClose, cu
     try {
       let customerId: string | null = null;
       
-      // 1. ATOMIC CUSTOMER UPSERT
       const { data: existing, error: findError } = await supabase
         .from('customers')
         .select('id')
@@ -67,9 +67,6 @@ const TripBookingModal: React.FC<TripBookingModalProps> = ({ isOpen, onClose, cu
         customerId = (newCust as any).id;
       }
 
-      if (!customerId) throw new Error("Manifest Sync Error: Client ID could not be generated.");
-
-      // 2. MISSION REGISTRY CREATION
       const tripPayload = {
         customer_id: customerId,
         pickup_location: formData.pickupLocation,
@@ -91,6 +88,16 @@ const TripBookingModal: React.FC<TripBookingModalProps> = ({ isOpen, onClose, cu
 
       if (tripData) {
         const t = tripData as any;
+        // CREATE LOG
+        if (currentUserId) {
+          await supabase.from('trip_logs').insert([{
+            trip_id: t.id,
+            action: 'TRIP_CREATED',
+            performed_by: currentUserId,
+            reason: 'Initial Manifest Registry'
+          }]);
+        }
+
         const mappedTrip: Trip = {
             id: t.id,
             displayId: t.trip_code, 

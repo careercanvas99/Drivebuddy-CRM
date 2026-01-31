@@ -13,17 +13,15 @@ interface DashboardProps {
   customers: Customer[];
   setTrips: React.Dispatch<React.SetStateAction<Trip[]>>;
   setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>;
+  currentUser: User;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ users, drivers, trips, customers, setTrips, setCustomers }) => {
+const Dashboard: React.FC<DashboardProps> = ({ users, drivers, trips, customers, setTrips, setCustomers, currentUser }) => {
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [activeDrivers, setActiveDrivers] = useState<Driver[]>(drivers);
 
-  // REAL-TIME LOCATION TRACKING (STRICT SQL PULL - 1 Minute Frequency)
   useEffect(() => {
     const fetchLatestLocations = async () => {
-      // Pull from driver_locations for historical/trace or latest drivers update
-      // For simplicity in Dashboard, we read latest driver profile coordinates which are updated by Pilot terminal
       const { data, error } = await supabase.from('drivers').select('*');
       if (data && !error) {
         setActiveDrivers(data.map((d: any) => ({
@@ -50,10 +48,10 @@ const Dashboard: React.FC<DashboardProps> = ({ users, drivers, trips, customers,
   }, [drivers]);
 
   const stats = [
-    { label: 'Active Drivers', value: drivers.filter(d => d.status !== 'Inactive').length, icon: ICONS.Drivers, color: 'text-green-500' },
-    { label: 'Pending Trips', value: trips.filter(t => t.status === 'NEW').length, icon: ICONS.Trips, color: 'text-yellow-500' },
-    { label: 'Total Customers', value: customers.length, icon: ICONS.Users, color: 'text-purple-500' },
-    { label: 'Completed Trips', value: trips.filter(t => t.status === 'COMPLETED').length, icon: ICONS.History, color: 'text-blue-500' },
+    { label: 'Active Pilots', value: drivers.filter(d => d.status !== 'Inactive').length, icon: ICONS.Drivers, color: 'text-green-500' },
+    { label: 'Pending Missions', value: trips.filter(t => t.status === 'NEW').length, icon: ICONS.Trips, color: 'text-yellow-500' },
+    { label: 'Total Clients', value: customers.length, icon: ICONS.Users, color: 'text-purple-500' },
+    { label: 'Missions Finished', value: trips.filter(t => t.status === 'COMPLETED').length, icon: ICONS.History, color: 'text-blue-500' },
   ];
 
   return (
@@ -67,7 +65,7 @@ const Dashboard: React.FC<DashboardProps> = ({ users, drivers, trips, customers,
           onClick={() => setShowBookingModal(true)}
           className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-2xl flex items-center gap-2 font-black text-xs uppercase tracking-widest transition-all shadow-xl shadow-purple-900/40"
         >
-          {ICONS.Plus} New Trip Booking
+          {ICONS.Plus} New Mission Launch
         </button>
       </div>
 
@@ -134,6 +132,7 @@ const Dashboard: React.FC<DashboardProps> = ({ users, drivers, trips, customers,
           customers={customers} 
           setCustomers={setCustomers} 
           setTrips={setTrips} 
+          currentUserId={currentUser.id}
         />
       )}
     </div>

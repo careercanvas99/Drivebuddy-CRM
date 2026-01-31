@@ -161,7 +161,7 @@ const App: React.FC = () => {
             <Routes>
               {isStaff ? (
                 <>
-                  <Route path="/" element={<Dashboard users={users} drivers={drivers} trips={trips} customers={customers} setTrips={setTrips} setCustomers={setCustomers} />} />
+                  <Route path="/" element={<Dashboard users={users} drivers={drivers} trips={trips} customers={customers} setTrips={setTrips} setCustomers={setCustomers} currentUser={user} />} />
                   <Route path="/users" element={<UserManagement users={users} setUsers={setUsers} currentUser={user} />} />
                   <Route path="/drivers" element={<DriverManagement drivers={drivers} setDrivers={setDrivers} trips={trips} users={users} currentUser={user} />} />
                   <Route path="/customers" element={<CustomerManagement customers={customers} setCustomers={setCustomers} trips={trips} user={user} users={users} />} />

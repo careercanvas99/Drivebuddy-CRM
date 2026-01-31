@@ -10,7 +10,7 @@ export enum UserRole {
   CUSTOMER = 'Customer'
 }
 
-export type TripStatus = 'NEW' | 'STARTED' | 'COMPLETED' | 'CANCELLED';
+export type TripStatus = 'NEW' | 'ASSIGNED' | 'STARTED' | 'COMPLETED' | 'CANCELLED' | 'DELETED';
 export type PaymentStatus = 'pending' | 'collected' | 'settled';
 export type PaymentMode = 'cash' | 'online' | 'unpaid';
 
@@ -58,6 +58,17 @@ export interface Customer {
   vehicleModel: string;
 }
 
+export interface TripLog {
+  id: string;
+  trip_id: string;
+  action: string;
+  performed_by: string; // User ID
+  reason?: string;
+  created_at: string;
+  performer_name?: string;
+  performer_id?: string; // Business ID
+}
+
 export interface Trip {
   id: string; // Internal UUID
   displayId: string; // Business ID: TRIP-XXXX
@@ -74,6 +85,8 @@ export interface Trip {
   billAmount?: number;
   paymentStatus?: PaymentStatus;
   paymentMode?: PaymentMode;
+  deleted_at?: string;
+  delete_reason?: string;
 }
 
 export interface Notification {
