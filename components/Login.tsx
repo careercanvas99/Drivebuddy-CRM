@@ -25,7 +25,8 @@ const Login: React.FC<LoginProps> = ({ onLogin, isCloudReachable, onRetry }) => 
       const cleanUsername = username.trim().toLowerCase();
       const cleanPassword = password.trim();
 
-      const { data, error } = await supabase
+      // 1. Authenticate against Users table
+      const { data: userData, error } = await supabase
         .from('users')
         .select('*')
         .eq('username', cleanUsername)
@@ -33,28 +34,66 @@ const Login: React.FC<LoginProps> = ({ onLogin, isCloudReachable, onRetry }) => 
         .maybeSingle();
 
       if (error) {
-        if (error.code === 'PGRST205') {
-          setErrorMessage("DATABASE SYNC ERROR: Supabase has not yet refreshed its API cache.");
-        } else {
-          setErrorMessage(`API ERROR [${error.code}]: ${error.message}`);
-        }
+        setErrorMessage(`API ERROR [${error.code}]: ${error.message}`);
         return;
       }
 
-      if (!data) {
+      if (!userData) {
         setErrorMessage("ACCESS DENIED: Credentials incorrect.");
         return;
       }
 
-      if (data.status === 'Disabled') {
-        setErrorMessage("PROTOCOL REVOKED: This account has been disabled by Administrator.");
+      if (userData.status === 'Disabled') {
+        setErrorMessage("PROTOCOL REVOKED: Account disabled.");
         return;
       }
 
-      onLogin(data as User);
+      const finalUser: User = {
+        id: userData.id,
+        displayId: userData.staff_code,
+        username: userData.username,
+        role: userData.role as UserRole,
+        name: userData.name,
+        mobile: userData.mobile,
+        address: userData.address,
+        status: userData.status as any
+      };
+
+      // 2. CRITICAL: Relational Mapping (Driver/Customer)
+      if (finalUser.role === UserRole.DRIVER) {
+        const { data: driverData } = await supabase
+          .from('drivers')
+          .select('id')
+          .eq('driver_code', userData.staff_code)
+          .maybeSingle();
+        
+        if (driverData) {
+          finalUser.driverId = driverData.id;
+        } else {
+          setErrorMessage("AUTHORIZATION FAIL: No Pilot registry found for this user.");
+          setIsAuthenticating(false);
+          return;
+        }
+      } else if (finalUser.role === UserRole.CUSTOMER) {
+        // Customers might login by mobile or username
+        const { data: custData } = await supabase
+          .from('customers')
+          .select('id')
+          .or(`customer_code.eq.${userData.staff_code},mobile_number.eq.${userData.username}`)
+          .maybeSingle();
+        
+        if (custData) {
+          finalUser.customerId = custData.id;
+        } else {
+          setErrorMessage("AUTHORIZATION FAIL: No Client registry found for this user.");
+          setIsAuthenticating(false);
+          return;
+        }
+      }
+
+      onLogin(finalUser);
     } catch (err: any) {
-      console.error("Critical Login Error:", err);
-      setErrorMessage(`SYSTEM ERROR: ${err.message || JSON.stringify(err)}`);
+      setErrorMessage(`SYSTEM ERROR: ${err.message}`);
     } finally {
       setIsAuthenticating(false);
     }
@@ -70,7 +109,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, isCloudReachable, onRetry }) => 
              <div className="w-3 h-3 bg-purple-500 rounded-full animate-pulse shadow-[0_0_20px_#a855f7]"></div>
           </div>
           <h1 className="text-3xl font-black text-white mb-1 tracking-tighter uppercase leading-none italic">Drivebuddy</h1>
-          <p className="text-gray-600 text-[10px] font-black uppercase tracking-[0.4em]">Infrastructure V4.0</p>
+          <p className="text-gray-600 text-[10px] font-black uppercase tracking-[0.4em]">Infrastructure V50</p>
         </div>
 
         <div className="flex bg-black border border-gray-900 p-1.5 rounded-2xl mb-8">
@@ -78,7 +117,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, isCloudReachable, onRetry }) => 
             onClick={() => setIsCustomer(false)}
             className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${!isCustomer ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-600'}`}
           >
-            Staff
+            Staff / Driver
           </button>
           <button 
             onClick={() => setIsCustomer(true)}
@@ -90,12 +129,12 @@ const Login: React.FC<LoginProps> = ({ onLogin, isCloudReachable, onRetry }) => 
 
         <form onSubmit={handleAdminLogin} className="space-y-5">
           <div className="space-y-1.5">
-            <label className="text-[9px] font-black text-gray-700 uppercase px-4 tracking-[0.2em]">Operator ID</label>
+            <label className="text-[9px] font-black text-gray-700 uppercase px-4 tracking-[0.2em]">User ID / Mobile</label>
             <input 
               type="text" 
               required 
-              className="w-full bg-black border border-gray-800 rounded-2xl p-4 focus:border-purple-500 outline-none transition-all font-mono text-white placeholder:text-gray-900"
-              placeholder="admin"
+              className="w-full bg-black border border-gray-800 rounded-2xl p-4 focus:border-purple-500 outline-none transition-all font-mono text-white"
+              placeholder="Enter Credentials"
               value={username}
               onChange={e => setUsername(e.target.value)}
             />
@@ -105,8 +144,8 @@ const Login: React.FC<LoginProps> = ({ onLogin, isCloudReachable, onRetry }) => 
             <input 
               type="password" 
               required 
-              className="w-full bg-black border border-gray-800 rounded-2xl p-4 focus:border-purple-500 outline-none transition-all text-purple-500 placeholder:text-gray-900"
-              placeholder="password"
+              className="w-full bg-black border border-gray-800 rounded-2xl p-4 focus:border-purple-500 outline-none transition-all text-purple-500"
+              placeholder="••••••••"
               value={password}
               onChange={e => setPassword(e.target.value)}
             />
@@ -121,11 +160,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, isCloudReachable, onRetry }) => 
         </form>
 
         {errorMessage && (
-          <div className="mt-8 p-5 bg-red-950/20 border border-red-500/30 rounded-2xl animate-in fade-in zoom-in duration-300">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-ping"></span>
-              <p className="text-[10px] font-black text-red-500 uppercase tracking-widest">Auth Notification</p>
-            </div>
+          <div className="mt-8 p-5 bg-red-950/20 border border-red-500/30 rounded-2xl animate-in fade-in duration-300">
             <p className="text-[11px] font-medium text-gray-400 leading-relaxed uppercase tracking-tight">
               {errorMessage}
             </p>

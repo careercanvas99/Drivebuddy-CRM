@@ -12,13 +12,46 @@ interface FinanceReportsProps {
 }
 
 const FinanceReports: React.FC<FinanceReportsProps> = ({ trips, drivers, customers, companySettings }) => {
-  // Fix: Comparing against 'COMPLETED' to match TripStatus definition
   const completedTrips = trips.filter(t => t.status === 'COMPLETED');
-  const totalRevenue = completedTrips.reduce((acc, t) => acc + (t.billAmount || 0), 0);
+  const totalRevenue = completedTrips.reduce((acc, t) => acc + (t.totalAmount || 0), 0);
+
+  const formatDuration = (start: string, end: string | undefined) => {
+    if (!start || !end) return "00:00";
+    const diff = new Date(end).getTime() - new Date(start).getTime();
+    const hrs = Math.floor(diff / 3600000);
+    const mins = Math.floor((diff % 3600000) / 60000);
+    return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+  };
+
+  const handleExportCSV = () => {
+    if (completedTrips.length === 0) return alert("No data available to export.");
+    
+    const headers = ["Date", "Trip ID", "Customer", "Pilot", "Duration (HH:MM)", "Amount", "Mode"];
+    const rows = completedTrips.map(t => [
+      new Date(t.startDateTime).toLocaleDateString(),
+      t.displayId,
+      customers.find(c => c.id === t.customerId)?.name || "Guest",
+      drivers.find(d => d.id === t.driverId)?.name || "Unassigned",
+      formatDuration(t.startDateTime, t.endDateTime),
+      t.totalAmount || 0,
+      t.paymentMode || "Unpaid"
+    ]);
+
+    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Fiscal_Report_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const handleDownloadInvoice = (trip: Trip) => {
     const cust = customers.find(c => c.id === trip.customerId);
-    generatePDFInvoice(trip, cust, companySettings);
+    const driver = drivers.find(d => d.id === trip.driverId);
+    generatePDFInvoice(trip, cust, companySettings, driver);
   };
 
   return (
@@ -37,7 +70,10 @@ const FinanceReports: React.FC<FinanceReportsProps> = ({ trips, drivers, custome
       <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden">
         <div className="p-4 border-b border-gray-800 flex justify-between items-center">
           <h3 className="font-bold">Transaction History</h3>
-          <button className="bg-gray-800 text-white px-3 py-1 rounded text-xs flex items-center gap-2">
+          <button 
+            onClick={handleExportCSV}
+            className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-xs flex items-center gap-2 transition-colors font-bold uppercase tracking-widest"
+          >
             {ICONS.Reports} Export CSV
           </button>
         </div>
@@ -47,7 +83,8 @@ const FinanceReports: React.FC<FinanceReportsProps> = ({ trips, drivers, custome
               <tr>
                 <th className="p-4 font-medium">Date</th>
                 <th className="p-4 font-medium">Trip ID</th>
-                <th className="p-4 font-medium">Driver</th>
+                <th className="p-4 font-medium">Pilot</th>
+                <th className="p-4 font-medium">Duration</th>
                 <th className="p-4 font-medium">Amount</th>
                 <th className="p-4 font-medium text-right">Actions</th>
               </tr>
@@ -58,7 +95,8 @@ const FinanceReports: React.FC<FinanceReportsProps> = ({ trips, drivers, custome
                   <td className="p-4">{new Date(trip.startDateTime).toLocaleDateString()}</td>
                   <td className="p-4 font-mono text-xs text-purple-400">{trip.displayId}</td>
                   <td className="p-4">{drivers.find(d => d.id === trip.driverId)?.name}</td>
-                  <td className="p-4 font-bold text-green-400">₹ {trip.billAmount?.toFixed(2)}</td>
+                  <td className="p-4 font-mono text-gray-500">{formatDuration(trip.startDateTime, trip.endDateTime)}</td>
+                  <td className="p-4 font-bold text-green-400">₹ {trip.totalAmount?.toFixed(2)}</td>
                   <td className="p-4 text-right">
                     <button 
                       onClick={() => handleDownloadInvoice(trip)}

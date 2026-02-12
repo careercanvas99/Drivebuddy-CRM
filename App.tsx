@@ -120,7 +120,7 @@ const App: React.FC = () => {
           endDateTime: t.end_time,
           status: t.trip_status as any,
           cancelReason: t.cancel_reason,
-          billAmount: t.bill_amount,
+          totalAmount: t.total_amount, // Correct mapping for V59
           paymentStatus: t.payment_status as any,
           paymentMode: t.payment_mode as any
         })));

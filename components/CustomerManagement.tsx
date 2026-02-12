@@ -84,6 +84,15 @@ const CustomerManagement: React.FC<CustomerManagementProps> = ({ customers, setC
           officeAddress: c.office_address || '',
           vehicleModel: c.vehicle_model || 'Standard'
         };
+        
+        // Log Onboarding
+        await supabase.from('audit_logs').insert([{
+          entity_type: 'CUSTOMER',
+          entity_id: addedCust.id,
+          action: 'CLIENT_ONBOARDED',
+          performed_by: user.id
+        }]);
+
         setCustomers(prev => [...prev, addedCust]);
         alert('Client Protocol Synchronized.');
       }
@@ -98,12 +107,19 @@ const CustomerManagement: React.FC<CustomerManagementProps> = ({ customers, setC
 
   const handleUpdateCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedCustomer && canManageCredentials) {
+    
+    // STRICT SECURITY CHECK
+    if (![UserRole.ADMIN, UserRole.OPS_MANAGER].includes(user.role)) {
+      alert("UNAUTHORIZED ACCESS: Level 1 credentials required for profile modification.");
+      return;
+    }
+
+    if (selectedCustomer) {
       setIsSubmitting(true);
       const customerCode = selectedCustomer.displayId && selectedCustomer.displayId.trim() !== '' ? selectedCustomer.displayId : undefined;
 
       try {
-        // 1. Update Customer Table
+        // 1. ATOMIC SQL UPDATE (By UUID)
         const { data: custData, error: custError } = await supabase
           .from('customers')
           .update({
@@ -112,7 +128,8 @@ const CustomerManagement: React.FC<CustomerManagementProps> = ({ customers, setC
             home_address: selectedCustomer.homeAddress,
             office_address: selectedCustomer.officeAddress,
             vehicle_model: selectedCustomer.vehicleModel,
-            customer_code: customerCode
+            customer_code: customerCode,
+            updated_at: new Date().toISOString()
           } as any)
           .eq('id', selectedCustomer.id)
           .select()
@@ -120,9 +137,21 @@ const CustomerManagement: React.FC<CustomerManagementProps> = ({ customers, setC
 
         if (custError) throw custError;
 
-        // 2. Sync Credentials in Users Table
+        // 2. MANDATORY AUDIT LOG
+        await supabase.from('audit_logs').insert([{
+          entity_type: 'CUSTOMER',
+          entity_id: selectedCustomer.id,
+          action: 'CLIENT_PROFILE_UPDATED',
+          performed_by: user.id,
+          details: {
+            name: selectedCustomer.name,
+            mobile: selectedCustomer.mobile,
+            vehicle: selectedCustomer.vehicleModel
+          }
+        }]);
+
+        // 3. Sync Credentials in Users Table (If login exists)
         if (loginId.trim() !== '') {
-          // Check if user already exists based on original mobile or current name
           const { data: existingUser } = await supabase
             .from('users')
             .select('id')
@@ -141,6 +170,7 @@ const CustomerManagement: React.FC<CustomerManagementProps> = ({ customers, setC
           if (existingUser) {
             await supabase.from('users').update(userPayload).eq('id', existingUser.id);
           } else {
+            // Only insert if Admin specifically sets credentials for a customer that didn't have one
             await supabase.from('users').insert([userPayload]);
           }
         }
@@ -156,11 +186,13 @@ const CustomerManagement: React.FC<CustomerManagementProps> = ({ customers, setC
               officeAddress: c.office_address || '',
               vehicleModel: c.vehicle_model || 'Standard'
            };
+           
+           // NO OPTIMISTIC UPDATES: We wait for the SQL response
            setCustomers(prev => prev.map(cust => cust.id === updated.id ? updated : cust));
-           alert('Global Client Registry Updated (Profile & Login).');
+           alert('Global Client Registry Updated (Profile & Login). Persistence Confirmed.');
         }
       } catch (err: any) {
-        alert(`Persistence Update Error: ${err.message}`);
+        alert(`CRITICAL PERSISTENCE ERROR: ${err.message}`);
       } finally {
         setIsSubmitting(false);
         setSelectedCustomer(null);
@@ -169,10 +201,23 @@ const CustomerManagement: React.FC<CustomerManagementProps> = ({ customers, setC
   };
 
   const handleDeleteCustomer = async (id: string) => {
+    if (![UserRole.ADMIN, UserRole.OPS_MANAGER].includes(user.role)) {
+      alert("UNAUTHORIZED: Level 1 clearance required.");
+      return;
+    }
+
     if (confirm('DANGER: Permanent deletion of client profile? Relational logs will be archived.')) {
       try {
         const { error } = await supabase.from('customers').delete().eq('id', id);
         if (error) throw error;
+        
+        await supabase.from('audit_logs').insert([{
+          entity_type: 'CUSTOMER',
+          entity_id: id,
+          action: 'CLIENT_PROFILE_DELETED',
+          performed_by: user.id
+        }]);
+
         setCustomers(prev => prev.filter(c => c.id !== id));
       } catch (err: any) {
         alert(`Deletion Violation: ${err.message}`);

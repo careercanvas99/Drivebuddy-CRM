@@ -80,6 +80,7 @@ export const mockTrips: Trip[] = [
     startDateTime: '2023-11-20T10:00',
     endDateTime: '2023-11-20T11:30',
     status: 'COMPLETED',
-    billAmount: 1200
+    // Fix: Updated billAmount to totalAmount to match Trip interface
+    totalAmount: 1200
   }
 ];

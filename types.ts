@@ -12,7 +12,7 @@ export enum UserRole {
 
 export type TripStatus = 'NEW' | 'ASSIGNED' | 'STARTED' | 'COMPLETED' | 'CANCELLED' | 'DELETED';
 export type PaymentStatus = 'pending' | 'collected' | 'settled';
-export type PaymentMode = 'cash' | 'online' | 'unpaid';
+export type PaymentMode = 'Cash' | 'Online' | 'UPI' | 'Card' | 'Unpaid';
 
 export interface CompanySettings {
   name: string;
@@ -23,8 +23,8 @@ export interface CompanySettings {
 }
 
 export interface User {
-  id: string; // Internal UUID
-  displayId: string; // Business ID: DBDY-HYD-XXX
+  id: string;
+  displayId: string;
   username: string;
   password?: string;
   role: UserRole;
@@ -32,11 +32,13 @@ export interface User {
   mobile?: string;
   address?: string;
   status: 'Active' | 'Disabled';
+  driverId?: string;
+  customerId?: string;
 }
 
 export interface Driver {
-  id: string; // Internal UUID
-  displayId: string; // Business ID: DBDY-HYD-DR-XXX
+  id: string;
+  displayId: string;
   name: string;
   licenseNumber: string;
   issueDate: string;
@@ -49,8 +51,8 @@ export interface Driver {
 }
 
 export interface Customer {
-  id: string; // Internal UUID
-  displayId: string; // Business ID: CUST-XXXX
+  id: string;
+  displayId: string;
   name: string;
   mobile: string;
   homeAddress: string;
@@ -62,16 +64,17 @@ export interface TripLog {
   id: string;
   trip_id: string;
   action: string;
-  performed_by: string; // User ID
+  performed_by: string;
+  image_url?: string;
   reason?: string;
   created_at: string;
   performer_name?: string;
-  performer_id?: string; // Business ID
+  performer_id?: string;
 }
 
 export interface Trip {
-  id: string; // Internal UUID
-  displayId: string; // Business ID: TRIP-XXXX
+  id: string;
+  displayId: string;
   customerId: string;
   driverId?: string;
   pickupLocation: string;
@@ -82,9 +85,9 @@ export interface Trip {
   endDateTime: string;
   status: TripStatus;
   cancelReason?: string;
-  billAmount?: number;
+  totalAmount?: number; 
   paymentStatus?: PaymentStatus;
-  paymentMode?: PaymentMode;
+  paymentMode?: string;
   deleted_at?: string;
   delete_reason?: string;
 }

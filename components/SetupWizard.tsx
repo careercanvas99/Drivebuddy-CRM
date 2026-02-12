@@ -8,13 +8,13 @@ interface SetupWizardProps {
 const SetupWizard: React.FC<SetupWizardProps> = ({ onRetry }) => {
   const [copyStatus, setCopyStatus] = useState(false);
 
-  const sqlScript = `-- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE SCRIPT V50
--- TARGET: Mission Override Protocol & Unified Audit Registry
+  const sqlScript = `-- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE SCRIPT V65
+-- TARGET: Mission Override Protocol, Biometric Storage & Cache Sync
 
 -- 1. ENABLE EXTENSIONS
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- 2. CREATE SEQUENCES FOR BUSINESS IDS
+-- 2. CREATE SEQUENCES
 CREATE SEQUENCE IF NOT EXISTS seq_staff_code START 1;
 CREATE SEQUENCE IF NOT EXISTS seq_driver_code START 1;
 CREATE SEQUENCE IF NOT EXISTS seq_trip_code START 4501;
@@ -45,9 +45,6 @@ CREATE TABLE IF NOT EXISTS public.customers (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- V50 REPAIR
-ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS vehicle_model TEXT DEFAULT 'Standard';
-
 CREATE TABLE IF NOT EXISTS public.drivers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     driver_code TEXT UNIQUE,
@@ -63,9 +60,6 @@ CREATE TABLE IF NOT EXISTS public.drivers (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- V50 REPAIR
-ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Available';
-
 CREATE TABLE IF NOT EXISTS public.trips (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     trip_code TEXT UNIQUE,
@@ -76,20 +70,16 @@ CREATE TABLE IF NOT EXISTS public.trips (
     trip_type TEXT DEFAULT 'one-way',
     trip_route TEXT DEFAULT 'Instation',
     start_time TIMESTAMPTZ,
-    end_time TIMESTAMPTZ,
+    end_time TIMESTAMP,
     trip_status TEXT DEFAULT 'NEW',
     cancel_reason TEXT,
-    bill_amount FLOAT8,
     payment_status TEXT DEFAULT 'pending',
-    payment_mode TEXT,
+    payment_mode TEXT DEFAULT 'Unpaid',
+    total_amount NUMERIC,
     deleted_at TIMESTAMPTZ,
     delete_reason TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
-
--- V50 REPAIR
-ALTER TABLE public.trips ADD COLUMN IF NOT EXISTS end_time TIMESTAMPTZ;
-ALTER TABLE public.trips ADD COLUMN IF NOT EXISTS trip_route TEXT DEFAULT 'Instation';
 
 CREATE TABLE IF NOT EXISTS public.trip_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -97,10 +87,16 @@ CREATE TABLE IF NOT EXISTS public.trip_logs (
     action TEXT NOT NULL,
     performed_by UUID REFERENCES public.users(id),
     reason TEXT,
+    image_url TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 4. BUSINESS ID GENERATION LOGIC V50
+-- 4. BUCKET INITIALIZATION
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('trip-images', 'trip-images', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- 5. BUSINESS ID GENERATION LOGIC
 CREATE OR REPLACE FUNCTION public.fn_generate_business_id_v50() RETURNS TRIGGER AS $$
 BEGIN
   IF TG_TABLE_NAME = 'users' AND (NEW.staff_code IS NULL OR NEW.staff_code = '') THEN
@@ -112,11 +108,11 @@ BEGIN
   ELSIF TG_TABLE_NAME = 'customers' AND (NEW.customer_code IS NULL OR NEW.customer_code = '') THEN
     NEW.customer_code := 'CUST-' || nextval('seq_customer_code')::text;
   END IF;
-  RETURN NEW;
+  return NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- 5. ATTACH TRIGGERS
+-- 6. ATTACH TRIGGERS
 DROP TRIGGER IF EXISTS tr_users_code ON public.users;
 CREATE TRIGGER tr_users_code BEFORE INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v50();
 
@@ -129,10 +125,12 @@ CREATE TRIGGER tr_trips_code BEFORE INSERT ON public.trips FOR EACH ROW EXECUTE 
 DROP TRIGGER IF EXISTS tr_customers_code ON public.customers;
 CREATE TRIGGER tr_customers_code BEFORE INSERT ON public.customers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v50();
 
--- 6. PERMISSIONS
+-- 7. RELOAD CACHE & PERMISSIONS
+NOTIFY pgrst, 'reload schema';
+
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, postgres, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, postgres, service_role;
-NOTIFY pgrst, 'reload schema';`;
+GRANT ALL ON ALL TABLES IN SCHEMA storage TO anon, authenticated, postgres, service_role;`;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(sqlScript);
@@ -145,8 +143,8 @@ NOTIFY pgrst, 'reload schema';`;
       <div className="max-w-2xl w-full bg-gray-950 border border-purple-600/20 rounded-[4rem] p-12 text-center shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-1.5 bg-purple-600 shadow-[0_0_15px_#9333ea]"></div>
         <div className="mb-10 text-left">
-          <h2 className="text-4xl font-black text-white uppercase tracking-tighter mb-2 text-purple-500 leading-none text-center">Protocol V50</h2>
-          <p className="text-gray-600 text-[10px] uppercase tracking-[0.4em] font-black text-center">Global Identity Registry & Sequence Master</p>
+          <h2 className="text-4xl font-black text-white uppercase tracking-tighter mb-2 text-purple-500 leading-none text-center">Protocol V65</h2>
+          <p className="text-gray-600 text-[10px] uppercase tracking-[0.4em] font-black text-center">Identity Hub & Biometric Storage Master</p>
         </div>
         <div className="bg-black border border-gray-900 rounded-[2rem] p-6 text-left mb-10 overflow-hidden shadow-inner">
            <pre className="text-[9px] font-mono text-emerald-400 overflow-y-auto max-h-56 leading-relaxed custom-scrollbar">
@@ -155,7 +153,7 @@ NOTIFY pgrst, 'reload schema';`;
         </div>
         <div className="space-y-4">
           <button onClick={handleCopy} className="w-full bg-gray-900 text-white hover:bg-purple-600 border border-gray-800 py-5 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all">
-            {copyStatus ? 'Protocol Copied' : 'Copy Infrastructure SQL'}
+            {copyStatus ? 'Protocol Copied' : 'Copy Sync SQL'}
           </button>
           <button onClick={onRetry} className="w-full bg-white text-black py-5 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all shadow-xl hover:bg-purple-50 text-purple-600">
             Re-Initialize Uplink

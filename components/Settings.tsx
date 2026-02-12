@@ -28,20 +28,40 @@ const Settings: React.FC<SettingsProps> = ({ settings, setSettings }) => {
     setSettings(prev => ({ ...prev, [name]: value }));
   };
 
-  const sqlSnippet = `-- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE REPAIR V50
+  const sqlSnippet = `-- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE REPAIR V60
 -- 1. SETUP SEQUENCES
 CREATE SEQUENCE IF NOT EXISTS seq_staff_code START 1;
 CREATE SEQUENCE IF NOT EXISTS seq_driver_code START 1;
 CREATE SEQUENCE IF NOT EXISTS seq_trip_code START 4501;
 CREATE SEQUENCE IF NOT EXISTS seq_customer_code START 101;
 
--- 2. REPAIR MISSING COLUMNS (V50)
+-- 2. REPAIR MISSING COLUMNS & TABLES (V60)
 ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Available';
 ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS vehicle_model TEXT DEFAULT 'Standard';
-ALTER TABLE public.trips ADD COLUMN IF NOT EXISTS end_time TIMESTAMPTZ;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.trips ADD COLUMN IF NOT EXISTS end_time TIMESTAMP;
 ALTER TABLE public.trips ADD COLUMN IF NOT EXISTS trip_route TEXT DEFAULT 'Instation';
+ALTER TABLE public.trips ADD COLUMN IF NOT EXISTS payment_mode TEXT DEFAULT 'Unpaid';
+ALTER TABLE public.trips ADD COLUMN IF NOT EXISTS total_amount NUMERIC;
 
--- 3. GENERATION FUNCTION
+CREATE TABLE IF NOT EXISTS public.audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    entity_type TEXT NOT NULL,
+    entity_id UUID NOT NULL,
+    action TEXT NOT NULL,
+    performed_by UUID REFERENCES public.users(id),
+    details JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. STORAGE BUCKET DOCUMENTATION
+-- CRITICAL: You must manually create a storage bucket named 'mission-docs'
+-- 1. Go to Supabase Dashboard > Storage
+-- 2. Click 'New Bucket' -> Name: 'mission-docs'
+-- 3. Set to 'Public'
+-- 4. Set Policies to allow 'ALL' for authenticated users.
+
+-- 4. GENERATION FUNCTIONS
 CREATE OR REPLACE FUNCTION public.fn_generate_business_id_v50() RETURNS TRIGGER AS $$
 BEGIN
   IF TG_TABLE_NAME = 'users' AND (NEW.staff_code IS NULL OR NEW.staff_code = '') THEN
@@ -53,11 +73,18 @@ BEGIN
   ELSIF TG_TABLE_NAME = 'customers' AND (NEW.customer_code IS NULL OR NEW.customer_code = '') THEN
     NEW.customer_code := 'CUST-' || nextval('seq_customer_code')::text;
   END IF;
-  RETURN NEW;
+  return NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- 4. ATTACH TRIGGERS
+CREATE OR REPLACE FUNCTION public.fn_update_timestamp() RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 5. ATTACH TRIGGERS
 DROP TRIGGER IF EXISTS tr_users_code ON public.users;
 CREATE TRIGGER tr_users_code BEFORE INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v50();
 
@@ -70,7 +97,11 @@ CREATE TRIGGER tr_trips_code BEFORE INSERT ON public.trips FOR EACH ROW EXECUTE 
 DROP TRIGGER IF EXISTS tr_customers_code ON public.customers;
 CREATE TRIGGER tr_customers_code BEFORE INSERT ON public.customers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v50();
 
--- 5. REFRESH API CACHE
+-- Timestamps
+DROP TRIGGER IF EXISTS tr_customers_updated ON public.customers;
+CREATE TRIGGER tr_customers_updated BEFORE UPDATE ON public.customers FOR EACH ROW EXECUTE FUNCTION fn_update_timestamp();
+
+-- 6. REFRESH API CACHE
 NOTIFY pgrst, 'reload schema';`;
 
   const copySql = () => {
@@ -149,13 +180,13 @@ NOTIFY pgrst, 'reload schema';`;
         <div className="flex items-center gap-4 text-orange-500">
           <div className="p-3 bg-orange-500/10 rounded-2xl">{ICONS.Reports}</div>
           <div>
-            <h3 className="text-xl font-black uppercase tracking-tighter">Unified ID Generation Protocol (V50)</h3>
+            <h3 className="text-xl font-black uppercase tracking-tighter">Unified ID Generation Protocol (V60)</h3>
             <p className="text-xs text-orange-500/60 uppercase font-bold tracking-widest">Global Sequence Maintenance</p>
           </div>
         </div>
         
         <p className="text-sm text-gray-400 leading-relaxed">
-          The script below restores the sequence triggers for staff (users), pilots (drivers), manifest entries (trips), and clients (customers). It ensures that every new entity created in the system receives a properly formatted Business ID.
+          The script below restores the sequence triggers for staff, pilots, manifest entries, and clients. It also includes instructions for correcting Storage Bucket 404 errors.
         </p>
 
         <div className="relative group">
