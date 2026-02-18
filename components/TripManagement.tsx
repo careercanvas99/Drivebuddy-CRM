@@ -121,7 +121,11 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
 
   const handleUpdateStatus = async (tripId: string, newStatus: TripStatus) => {
     if (!canModifyTrip()) return;
-    if (!window.confirm(`Force override manifest status to ${newStatus}? Audit log will be created.`)) return;
+    
+    const reason = window.prompt(`Identify reason for Mission Status override to ${newStatus}:`, `Operational necessity`);
+    if (reason === null) return; // User cancelled
+    
+    if (!window.confirm(`Finalize mission override to ${newStatus}? Audit ledger will be updated.`)) return;
     
     setIsProcessing(true);
     try {
@@ -132,20 +136,26 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
         trip_id: tripId,
         action: 'STATUS_OVERRIDE',
         performed_by: user.id,
-        reason: `Staff override to ${newStatus}`
+        reason: reason || `Manual override to ${newStatus}`
       }]);
 
+      // DRIVER STATUS SYNC: Release pilot if mission is closed
       if (['COMPLETED', 'CANCELLED'].includes(newStatus)) {
         const tripToUpdate = trips.find(t => t.id === tripId);
         if (tripToUpdate?.driverId) {
           await supabase.from('drivers').update({ status: 'Available' } as any).eq('id', tripToUpdate.driverId);
+        }
+      } else if (newStatus === 'STARTED') {
+        const tripToUpdate = trips.find(t => t.id === tripId);
+        if (tripToUpdate?.driverId) {
+          await supabase.from('drivers').update({ status: 'Busy' } as any).eq('id', tripToUpdate.driverId);
         }
       }
 
       // Optimistic update for UI reflection
       setTrips(prev => prev.map(t => t.id === tripId ? { ...t, status: newStatus } : t));
 
-      alert(`Mission registry updated to ${newStatus}.`);
+      alert(`Mission registry updated to ${newStatus}. Registry Synchronized.`);
     } catch (err: any) {
       alert(`Status Sync Error: ${err.message}`);
     } finally {
@@ -165,16 +175,25 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
   };
 
+  const formatTimestamp = (ts: string | null | undefined) => {
+    if (!ts) return "---";
+    const date = new Date(ts);
+    return date.toLocaleString('en-IN', {
+      day: '2-digit', month: 'short', 
+      hour: '2-digit', minute: '2-digit', hour12: true 
+    });
+  };
+
   const handleExportCSV = () => {
-    const headers = ["Trip ID", "Client", "Pilot", "Pickup Hub", "Destination Hub", "Status", "Duration (HH:MM)", "Total (INR)"];
+    const headers = ["Trip ID", "Client", "Pilot", "Start Time", "End Time", "Status", "Duration (HH:MM)", "Total (INR)"];
     const rows = filteredTrips.map(t => {
       const pilot = drivers.find(d => d.id === t.driverId);
       return [
         t.displayId,
         customers.find(c => c.id === t.customerId)?.name || "Guest",
         pilot?.name || "Unassigned",
-        t.pickupLocation.replace(/,/g, ' '),
-        t.dropLocation.replace(/,/g, ' '),
+        formatTimestamp(t.startDateTime),
+        formatTimestamp(t.endDateTime),
         t.status,
         getDurationString(t.startDateTime, t.endDateTime),
         t.totalAmount || 0
@@ -387,7 +406,15 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
       <div className="bg-gray-950 rounded-[3rem] border border-gray-900 overflow-hidden shadow-2xl">
         <table className="w-full text-left text-[11px] font-bold uppercase">
           <thead className="bg-black text-gray-600 border-b border-gray-900 text-[9px] font-black tracking-widest">
-            <tr><th className="p-6">ID</th><th className="p-6">Client</th><th className="p-6">Pilot</th><th className="p-6">Status</th><th className="p-6 text-right">Actions</th></tr>
+            <tr>
+              <th className="p-6">ID</th>
+              <th className="p-6">Client</th>
+              <th className="p-6">Pilot</th>
+              <th className="p-6">Start Time</th>
+              <th className="p-6">End Time</th>
+              <th className="p-6">Status</th>
+              <th className="p-6 text-right">Actions</th>
+            </tr>
           </thead>
           <tbody className="divide-y divide-gray-900">
             {filteredTrips.map(trip => {
@@ -403,6 +430,8 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
                       <span className="text-gray-700 italic">Unassigned</span>
                     )}
                   </td>
+                  <td className="p-6 text-gray-500 font-mono text-[10px]">{formatTimestamp(trip.startDateTime)}</td>
+                  <td className="p-6 text-gray-500 font-mono text-[10px]">{formatTimestamp(trip.endDateTime)}</td>
                   <td className="p-6">
                     {canModifyTrip(trip.id, trip.driverId) ? (
                       <select 
@@ -441,7 +470,15 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
                <div className="lg:col-span-4 space-y-6">
                   <section className="bg-black/40 border border-gray-900 rounded-[2rem] p-6 shadow-inner"><h4 className="text-[9px] text-gray-600 uppercase font-black tracking-widest mb-4 flex items-center gap-2">{ICONS.Profile} Client</h4><p className="text-lg font-black text-white">{detailedTrip.customer?.name}</p><p className="text-sm font-mono text-purple-400">{detailedTrip.customer?.mobile}</p></section>
                   <section className="bg-black/40 border border-gray-900 rounded-[2rem] p-6 shadow-inner"><h4 className="text-[9px] text-gray-600 uppercase font-black tracking-widest mb-4 flex items-center gap-2">{ICONS.Drivers} Pilot</h4><p className="text-lg font-black text-white">{detailedTrip.driver?.name || 'Unassigned'}</p><p className="text-sm font-mono text-purple-400">{detailedTrip.driver?.displayId}</p></section>
-                  <section className="bg-black/40 border border-gray-900 rounded-[2rem] p-6 shadow-inner"><h4 className="text-[9px] text-gray-600 uppercase font-black tracking-widest mb-4">Logistics Hubs</h4><div className="space-y-2"><p className="text-[8px] text-gray-700 font-black uppercase">Pickup</p><p className="text-xs text-gray-300 leading-tight">{detailedTrip.pickupLocation}</p><p className="text-[8px] text-gray-700 font-black uppercase mt-3">Destination</p><p className="text-xs text-gray-300 leading-tight">{detailedTrip.dropLocation}</p></div></section>
+                  <section className="bg-black/40 border border-gray-900 rounded-[2rem] p-6 shadow-inner">
+                    <h4 className="text-[9px] text-gray-600 uppercase font-black tracking-widest mb-4">Logistics Timeline</h4>
+                    <div className="space-y-3">
+                       <div className="flex justify-between items-center"><span className="text-[8px] text-gray-700 font-black uppercase">Mission Start</span><span className="text-[10px] font-mono text-emerald-500">{formatTimestamp(detailedTrip.startDateTime)}</span></div>
+                       <div className="flex justify-between items-center"><span className="text-[8px] text-gray-700 font-black uppercase">Mission End</span><span className="text-[10px] font-mono text-red-400">{formatTimestamp(detailedTrip.endDateTime)}</span></div>
+                       <div className="flex justify-between items-center pt-2 border-t border-gray-800/50"><span className="text-[8px] text-gray-700 font-black uppercase">Net Duration</span><span className="text-[10px] font-mono text-white">{getDurationString(detailedTrip.startDateTime, detailedTrip.endDateTime)}</span></div>
+                    </div>
+                  </section>
+                  <section className="bg-black/40 border border-gray-900 rounded-[2rem] p-6 shadow-inner"><h4 className="text-[9px] text-gray-600 uppercase font-black tracking-widest mb-4">Hub Logistics</h4><div className="space-y-2"><p className="text-[8px] text-gray-700 font-black uppercase">Pickup</p><p className="text-xs text-gray-300 leading-tight">{detailedTrip.pickupLocation}</p><p className="text-[8px] text-gray-700 font-black uppercase mt-3">Destination</p><p className="text-xs text-gray-300 leading-tight">{detailedTrip.dropLocation}</p></div></section>
                </div>
                <div className="lg:col-span-4 space-y-6">
                   <section className="bg-black/40 border border-gray-900 rounded-[2rem] p-6 shadow-inner">
@@ -484,6 +521,7 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
                         <p className="text-[10px] font-black text-white uppercase leading-none">{log.action.replace(/_/g, ' ')}</p>
                         <p className="text-[8px] text-gray-500 uppercase mt-1.5 font-bold">BY: {log.performer_name || 'System'}</p>
                         <p className="text-[8px] text-gray-600 font-mono mt-0.5">{new Date(log.created_at).toLocaleString()}</p>
+                        {log.reason && <p className="text-[9px] text-gray-400 mt-2 italic border-l-2 border-purple-500/30 pl-3">{log.reason}</p>}
                         {log.image_url && [UserRole.ADMIN, UserRole.OPS_MANAGER, UserRole.OPERATION_EXECUTIVE].includes(user.role) && (
                           <div className="mt-3 group relative cursor-pointer" onClick={() => window.open(log.image_url, '_blank')}>
                             <img src={log.image_url} className="w-full h-32 object-cover rounded-xl border border-gray-800 hover:border-purple-500 transition-all shadow-md" alt="Audit Evidence" />
