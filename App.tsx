@@ -25,9 +25,9 @@ const App: React.FC = () => {
   const [isCloudReachable, setIsCloudReachable] = useState(true);
   
   const [companySettings, setCompanySettings] = useState<CompanySettings>({
-    name: 'Drivebuddy Chauffeurs',
+    name: 'Drivebuddy',
     address: 'Drivebuddy HQ, Hyderabad, India',
-    mobile: '+91 80000 00000',
+    mobile: '9493936084',
     dbProvider: 'supabase',
   });
 
@@ -51,6 +51,18 @@ const App: React.FC = () => {
           return;
         }
         throw pingError;
+      }
+
+      // Fetch dynamic settings if they exist
+      const { data: settingsData } = await supabase.from('company_settings').select('*').maybeSingle();
+      if (settingsData) {
+        setCompanySettings({
+          name: settingsData.name || 'Drivebuddy',
+          address: settingsData.address || 'Drivebuddy HQ, Hyderabad, India',
+          mobile: settingsData.mobile || '9493936084',
+          logo: settingsData.logo,
+          dbProvider: 'supabase'
+        });
       }
 
       const [
@@ -120,7 +132,7 @@ const App: React.FC = () => {
           endDateTime: t.end_time,
           status: t.trip_status as any,
           cancelReason: t.cancel_reason,
-          totalAmount: t.total_amount, // Correct mapping for V59
+          totalAmount: t.total_amount, 
           paymentStatus: t.payment_status as any,
           paymentMode: t.payment_mode as any
         })));

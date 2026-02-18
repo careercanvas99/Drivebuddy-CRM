@@ -142,6 +142,9 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
         }
       }
 
+      // Optimistic update for UI reflection
+      setTrips(prev => prev.map(t => t.id === tripId ? { ...t, status: newStatus } : t));
+
       alert(`Mission registry updated to ${newStatus}.`);
     } catch (err: any) {
       alert(`Status Sync Error: ${err.message}`);
@@ -164,23 +167,26 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
 
   const handleExportCSV = () => {
     const headers = ["Trip ID", "Client", "Pilot", "Pickup Hub", "Destination Hub", "Status", "Duration (HH:MM)", "Total (INR)"];
-    const rows = filteredTrips.map(t => [
-      t.displayId,
-      customers.find(c => c.id === t.customerId)?.name || "Guest",
-      drivers.find(d => d.id === t.driverId)?.name || "Unassigned",
-      t.pickupLocation.replace(/,/g, ' '),
-      t.dropLocation.replace(/,/g, ' '),
-      t.status,
-      getDurationString(t.startDateTime, t.endDateTime),
-      t.totalAmount || 0
-    ]);
+    const rows = filteredTrips.map(t => {
+      const pilot = drivers.find(d => d.id === t.driverId);
+      return [
+        t.displayId,
+        customers.find(c => c.id === t.customerId)?.name || "Guest",
+        pilot?.name || "Unassigned",
+        t.pickupLocation.replace(/,/g, ' '),
+        t.dropLocation.replace(/,/g, ' '),
+        t.status,
+        getDurationString(t.startDateTime, t.endDateTime),
+        t.totalAmount || 0
+      ];
+    });
 
     const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `Manifest_Registry_V65_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute("download", `Manifest_Registry_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -192,16 +198,12 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
       const response = await fetch(base64);
       const blob = await response.blob();
       
-      // CRITICAL: Supabase bucket must be named 'trip-images'
       const { data, error } = await supabase.storage.from('trip-images').upload(fileName, blob, { 
         contentType: 'image/jpeg', 
         upsert: true 
       });
       
-      if (error) {
-        console.error("Storage Fault Details:", error);
-        throw error;
-      }
+      if (error) throw error;
       
       const { data: urlData } = supabase.storage.from('trip-images').getPublicUrl(data.path);
       return urlData.publicUrl;
@@ -221,6 +223,10 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
       if (tripError) throw tripError;
       await supabase.from('drivers').update({ status: 'Busy' } as any).eq('id', detailedTrip.driverId);
       await supabase.from('trip_logs').insert([{ trip_id: detailedTrip.id, action: 'TRIP_STARTED', image_url: imageUrl, performed_by: user.id, reason: 'Terminal Authorization' }]);
+      
+      // Update UI
+      setTrips(prev => prev.map(t => t.id === detailedTrip.id ? { ...t, status: 'STARTED', startDateTime: now } : t));
+
       setActiveSelfieType(null);
       setCapturedImage(null);
       fetchDetailedTrip(detailedTrip.id);
@@ -247,7 +253,6 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
       const imageUrl = await uploadSelfie(capturedImage, detailedTrip.id, 'END');
       const now = new Date().toISOString();
       
-      // CRITICAL: Updating the database using correct column names
       const { error: tripError } = await supabase.from('trips').update({
         trip_status: 'COMPLETED',
         end_time: now,
@@ -270,13 +275,16 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
         reason: `Final Amount: INR ${showFareConfirmation.total}`
       }]);
 
-      // AUTO-INVOICE GENERATION
       const finalManifest = { 
         ...detailedTrip, 
         status: 'COMPLETED' as TripStatus, 
         totalAmount: showFareConfirmation.total, 
         endDateTime: now 
       };
+
+      // UI Update
+      setTrips(prev => prev.map(t => t.id === detailedTrip.id ? { ...t, status: 'COMPLETED', endDateTime: now, totalAmount: showFareConfirmation.total } : t));
+
       generatePDFInvoice(finalManifest, detailedTrip.customer, companySettings, detailedTrip.driver);
 
       setShowFareConfirmation(null);
@@ -324,6 +332,10 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
       await supabase.from('drivers').update({ status: 'Busy' } as any).eq('id', driverId);
       await supabase.from('trips').update({ driver_id: driverId, trip_status: 'ASSIGNED' } as any).eq('id', detailedTrip.id);
       await supabase.from('trip_logs').insert([{ trip_id: detailedTrip.id, action: 'DRIVER_ASSIGNED', performed_by: user.id }]);
+      
+      // UI Update
+      setTrips(prev => prev.map(t => t.id === detailedTrip.id ? { ...t, status: 'ASSIGNED', driverId: driverId } : t));
+
       setShowAssignModal(false);
       fetchDetailedTrip(detailedTrip.id);
     } catch (err: any) { alert(`Allocation Failure: ${err.message}`); } finally { setIsProcessing(false); }
@@ -345,7 +357,7 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Manifest Control</h2>
-          <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-1">Registry V65 (Sync Resolved)</p>
+          <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-1">Registry Manifest (Real-time Sync)</p>
         </div>
         <div className="flex gap-3">
           <button onClick={handleExportCSV} className="bg-gray-900 border border-gray-800 text-gray-400 px-6 py-3 rounded-2xl font-black text-xs uppercase shadow-xl transition-all hover:text-white">
@@ -378,33 +390,42 @@ const TripManagement: React.FC<TripManagementProps> = ({ trips, setTrips, driver
             <tr><th className="p-6">ID</th><th className="p-6">Client</th><th className="p-6">Pilot</th><th className="p-6">Status</th><th className="p-6 text-right">Actions</th></tr>
           </thead>
           <tbody className="divide-y divide-gray-900">
-            {filteredTrips.map(trip => (
-              <tr key={trip.id} className="hover:bg-gray-900/40 transition-all group">
-                <td className="p-6 text-purple-500 font-mono">{trip.displayId}</td>
-                <td className="p-6 text-white">{customers.find(c => c.id === trip.customerId)?.name || 'GUEST'}</td>
-                <td className="p-6">{drivers.find(d => d.id === trip.driverId)?.name || <span className="text-gray-700 italic">Unassigned</span>}</td>
-                <td className="p-6">
-                  {canModifyTrip(trip.id, trip.driverId) ? (
-                    <select 
-                      value={trip.status} 
-                      onChange={(e) => handleUpdateStatus(trip.id, e.target.value as TripStatus)}
-                      className={`bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 text-[8px] font-black outline-none transition-all cursor-pointer hover:border-purple-500/50 ${trip.status === 'COMPLETED' ? 'text-emerald-400' : trip.status === 'STARTED' ? 'text-blue-400' : trip.status === 'CANCELLED' ? 'text-red-400' : 'text-purple-400'}`}
-                    >
-                      <option value="NEW">NEW</option>
-                      <option value="ASSIGNED">ASSIGNED</option>
-                      <option value="STARTED">STARTED</option>
-                      <option value="COMPLETED">COMPLETED</option>
-                      <option value="CANCELLED">CANCELLED</option>
-                    </select>
-                  ) : (
-                    <span className={`px-2 py-1 rounded-lg text-[8px] font-black ${trip.status === 'COMPLETED' ? 'bg-emerald-900/30 text-emerald-400' : trip.status === 'STARTED' ? 'bg-blue-900/30 text-blue-400' : 'bg-gray-800 text-gray-500'}`}>{trip.status}</span>
-                  )}
-                </td>
-                <td className="p-6 text-right">
-                  <button onClick={() => setViewingTripId(trip.id)} className="p-3 bg-gray-900 border border-gray-800 rounded-xl text-gray-400 hover:text-white transition-all shadow-md">{ICONS.View}</button>
-                </td>
-              </tr>
-            ))}
+            {filteredTrips.map(trip => {
+              const assignedDriver = drivers.find(d => d.id === trip.driverId);
+              return (
+                <tr key={trip.id} className="hover:bg-gray-900/40 transition-all group">
+                  <td className="p-6 text-purple-500 font-mono">{trip.displayId}</td>
+                  <td className="p-6 text-white">{customers.find(c => c.id === trip.customerId)?.name || 'GUEST'}</td>
+                  <td className="p-6 text-gray-400">
+                    {assignedDriver ? (
+                      <span className="text-purple-400 font-bold">{assignedDriver.name}</span>
+                    ) : (
+                      <span className="text-gray-700 italic">Unassigned</span>
+                    )}
+                  </td>
+                  <td className="p-6">
+                    {canModifyTrip(trip.id, trip.driverId) ? (
+                      <select 
+                        value={trip.status} 
+                        onChange={(e) => handleUpdateStatus(trip.id, e.target.value as TripStatus)}
+                        className={`bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 text-[8px] font-black outline-none transition-all cursor-pointer hover:border-purple-500/50 ${trip.status === 'COMPLETED' ? 'text-emerald-400' : trip.status === 'STARTED' ? 'text-blue-400' : trip.status === 'CANCELLED' ? 'text-red-400' : 'text-purple-400'}`}
+                      >
+                        <option value="NEW">NEW</option>
+                        <option value="ASSIGNED">ASSIGNED</option>
+                        <option value="STARTED">STARTED</option>
+                        <option value="COMPLETED">COMPLETED</option>
+                        <option value="CANCELLED">CANCELLED</option>
+                      </select>
+                    ) : (
+                      <span className={`px-2 py-1 rounded-lg text-[8px] font-black ${trip.status === 'COMPLETED' ? 'bg-emerald-900/30 text-emerald-400' : trip.status === 'STARTED' ? 'bg-blue-900/30 text-blue-400' : 'bg-gray-800 text-gray-500'}`}>{trip.status}</span>
+                    )}
+                  </td>
+                  <td className="p-6 text-right">
+                    <button onClick={() => setViewingTripId(trip.id)} className="p-3 bg-gray-900 border border-gray-800 rounded-xl text-gray-400 hover:text-white transition-all shadow-md">{ICONS.View}</button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

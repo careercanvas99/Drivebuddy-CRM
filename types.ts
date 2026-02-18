@@ -15,11 +15,12 @@ export type PaymentStatus = 'pending' | 'collected' | 'settled';
 export type PaymentMode = 'Cash' | 'Online' | 'UPI' | 'Card' | 'Unpaid';
 
 export interface CompanySettings {
+  id?: string;
   name: string;
   address: string;
   mobile: string;
   logo?: string;
-  dbProvider: 'none' | 'github' | 'supabase';
+  dbProvider?: 'none' | 'github' | 'supabase';
 }
 
 export interface User {

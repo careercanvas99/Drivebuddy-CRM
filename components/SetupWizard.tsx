@@ -8,8 +8,8 @@ interface SetupWizardProps {
 const SetupWizard: React.FC<SetupWizardProps> = ({ onRetry }) => {
   const [copyStatus, setCopyStatus] = useState(false);
 
-  const sqlScript = `-- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE SCRIPT V65
--- TARGET: Mission Override Protocol, Biometric Storage & Cache Sync
+  const sqlScript = `-- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE SCRIPT V71
+-- TARGET: Drivebuddy Brand Alignment & Persistent Settings
 
 -- 1. ENABLE EXTENSIONS
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -34,6 +34,21 @@ CREATE TABLE IF NOT EXISTS public.users (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS public.company_settings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL DEFAULT 'Drivebuddy',
+    address TEXT DEFAULT 'Drivebuddy HQ, Hyderabad, India',
+    mobile TEXT DEFAULT '9493936084',
+    logo TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Insert Default Branding
+INSERT INTO public.company_settings (name, address, mobile) 
+VALUES ('Drivebuddy', 'Drivebuddy HQ, Hyderabad, India', '9493936084')
+ON CONFLICT DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS public.customers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     customer_code TEXT UNIQUE,
@@ -42,7 +57,8 @@ CREATE TABLE IF NOT EXISTS public.customers (
     home_address TEXT,
     office_address TEXT,
     vehicle_model TEXT DEFAULT 'Standard',
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS public.drivers (
@@ -91,12 +107,7 @@ CREATE TABLE IF NOT EXISTS public.trip_logs (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 4. BUCKET INITIALIZATION
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('trip-images', 'trip-images', true)
-ON CONFLICT (id) DO NOTHING;
-
--- 5. BUSINESS ID GENERATION LOGIC
+-- 4. BUSINESS ID GENERATION LOGIC
 CREATE OR REPLACE FUNCTION public.fn_generate_business_id_v50() RETURNS TRIGGER AS $$
 BEGIN
   IF TG_TABLE_NAME = 'users' AND (NEW.staff_code IS NULL OR NEW.staff_code = '') THEN
@@ -112,7 +123,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- 6. ATTACH TRIGGERS
+-- 5. ATTACH TRIGGERS
 DROP TRIGGER IF EXISTS tr_users_code ON public.users;
 CREATE TRIGGER tr_users_code BEFORE INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v50();
 
@@ -125,12 +136,17 @@ CREATE TRIGGER tr_trips_code BEFORE INSERT ON public.trips FOR EACH ROW EXECUTE 
 DROP TRIGGER IF EXISTS tr_customers_code ON public.customers;
 CREATE TRIGGER tr_customers_code BEFORE INSERT ON public.customers FOR EACH ROW EXECUTE FUNCTION fn_generate_business_id_v50();
 
+-- 6. REAL-TIME REPLICA IDENTITY
+ALTER TABLE public.trips REPLICA IDENTITY FULL;
+ALTER TABLE public.drivers REPLICA IDENTITY FULL;
+ALTER TABLE public.customers REPLICA IDENTITY FULL;
+ALTER TABLE public.company_settings REPLICA IDENTITY FULL;
+
 -- 7. RELOAD CACHE & PERMISSIONS
 NOTIFY pgrst, 'reload schema';
 
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, postgres, service_role;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, postgres, service_role;
-GRANT ALL ON ALL TABLES IN SCHEMA storage TO anon, authenticated, postgres, service_role;`;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, postgres, service_role;`;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(sqlScript);
@@ -143,8 +159,8 @@ GRANT ALL ON ALL TABLES IN SCHEMA storage TO anon, authenticated, postgres, serv
       <div className="max-w-2xl w-full bg-gray-950 border border-purple-600/20 rounded-[4rem] p-12 text-center shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-1.5 bg-purple-600 shadow-[0_0_15px_#9333ea]"></div>
         <div className="mb-10 text-left">
-          <h2 className="text-4xl font-black text-white uppercase tracking-tighter mb-2 text-purple-500 leading-none text-center">Protocol V65</h2>
-          <p className="text-gray-600 text-[10px] uppercase tracking-[0.4em] font-black text-center">Identity Hub & Biometric Storage Master</p>
+          <h2 className="text-4xl font-black text-white uppercase tracking-tighter mb-2 text-purple-500 leading-none text-center">Protocol V71</h2>
+          <p className="text-gray-600 text-[10px] uppercase tracking-[0.4em] font-black text-center">Drivebuddy Infrastructure Master</p>
         </div>
         <div className="bg-black border border-gray-900 rounded-[2rem] p-6 text-left mb-10 overflow-hidden shadow-inner">
            <pre className="text-[9px] font-mono text-emerald-400 overflow-y-auto max-h-56 leading-relaxed custom-scrollbar">

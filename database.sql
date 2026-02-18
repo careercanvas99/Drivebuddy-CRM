@@ -1,11 +1,27 @@
 
--- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE REPAIR V65
--- TARGET: Mission Logic, Biometrics, Storage Provisioning, and PostgREST Cache Refresh
+-- DRIVEBUDDY DEFINITIVE INFRASTRUCTURE REPAIR V71
+-- TARGET: Drivebuddy Branding & Persistent Config
 
 DO $$ 
 BEGIN 
-    -- 1. TRIP TABLE SCHEMA ALIGNMENT
-    -- We use Numeric for total_amount to handle decimal fiscal data accurately
+    -- 1. COMPANY SETTINGS TABLE
+    CREATE TABLE IF NOT EXISTS public.company_settings (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name TEXT NOT NULL DEFAULT 'Drivebuddy',
+        address TEXT DEFAULT 'Drivebuddy HQ, Hyderabad, India',
+        mobile TEXT DEFAULT '9493936084',
+        logo TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- Insert Default Branding if not present
+    IF NOT EXISTS (SELECT 1 FROM public.company_settings LIMIT 1) THEN
+        INSERT INTO public.company_settings (name, address, mobile) 
+        VALUES ('Drivebuddy', 'Drivebuddy HQ, Hyderabad, India', '9493936084');
+    END IF;
+
+    -- 2. TRIP TABLE SCHEMA ALIGNMENT
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='trips' AND column_name='payment_mode') THEN
         ALTER TABLE public.trips ADD COLUMN payment_mode TEXT DEFAULT 'Unpaid';
     END IF;
@@ -26,7 +42,7 @@ BEGIN
         ALTER TABLE public.trips ADD COLUMN trip_route TEXT DEFAULT 'Instation';
     END IF;
 
-    -- 2. MISSION AUDIT TRAIL
+    -- 3. MISSION AUDIT TRAIL
     CREATE TABLE IF NOT EXISTS public.trip_logs (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         trip_id UUID REFERENCES public.trips(id) ON DELETE CASCADE,
@@ -38,29 +54,15 @@ BEGIN
     );
 END $$;
 
--- 3. STORAGE PROVISIONING: CREATE 'trip-images' BUCKET
--- This ensures the bucket exists in the storage schema and is public
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('trip-images', 'trip-images', true)
-ON CONFLICT (id) DO NOTHING;
-
--- 4. STORAGE SECURITY POLICIES
--- Allow public access to biometric proof images
-CREATE POLICY "Allow Public Proof Access" 
-ON storage.objects FOR SELECT 
-USING (bucket_id = 'trip-images');
-
--- Allow any authenticated user (Admin/Driver) to upload proofs
-CREATE POLICY "Allow Authenticated Proof Upload" 
-ON storage.objects FOR INSERT 
-TO authenticated 
-WITH CHECK (bucket_id = 'trip-images');
+-- 4. REAL-TIME SYNC ENHANCEMENT
+ALTER TABLE public.trips REPLICA IDENTITY FULL;
+ALTER TABLE public.drivers REPLICA IDENTITY FULL;
+ALTER TABLE public.customers REPLICA IDENTITY FULL;
+ALTER TABLE public.company_settings REPLICA IDENTITY FULL;
 
 -- 5. CRITICAL: REFRESH API SCHEMA CACHE
--- This resolves the "column not found in schema cache" error immediately
 NOTIFY pgrst, 'reload schema';
 
 -- 6. GLOBAL PERMISSIONS
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, postgres, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, postgres, service_role;
-GRANT ALL ON ALL TABLES IN SCHEMA storage TO anon, authenticated, postgres, service_role;
